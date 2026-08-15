@@ -1,0 +1,64 @@
+{% import "_macros.html" as m %}<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>每日新闻 · 首页</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site">
+    <h1>每日新闻</h1>
+    <p class="meta">过去 {{ window_hours }} 小时 · 更新于 {{ m.time_tag(generated_utc) }}</p>
+    <nav class="mainnav">
+      <a class="navlink active" href="index.html">首页</a>
+      {% for r in region_keys %}
+      <a class="navlink" href="{{ region_file(r) }}">{{ region_nav[r] }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+
+  <div class="top-cols">
+    {% for r in region_keys %}
+    <section class="top-col">
+      <h2 class="col-h">
+        {{ home[r].label }} Top 5
+        <a class="all" href="{{ region_file(r) }}">全部 {{ home[r].total }} 条 →</a>
+      </h2>
+
+      {% if home[r].events %}
+        <ol class="events">
+          {% for e in home[r].events %}
+          <li class="event">
+            <div class="ev-head">
+              <span class="rank">{{ loop.index }}</span>
+              <h3 class="ev-title">{{ e.title }}</h3>
+            </div>
+            {% if e.summary %}<p class="ev-sum">{{ e.summary }}</p>{% endif %}
+            <div class="ev-srcs">
+              <span class="ev-n">{{ e.articles|length }} 家报道</span>
+              {% for a in e.articles %}
+              <a class="chip" href="{{ a.url }}" target="_blank" rel="noopener"
+                 title="{{ a.title }}">{{ m.source_mark(a, 'xs') }}</a>
+              {% endfor %}
+            </div>
+          </li>
+          {% endfor %}
+        </ol>
+      {% elif home[r].fallback %}
+        <p class="empty">尚未生成 Top5 事件，先显示最新报道。</p>
+        <ul class="titles">
+          {% for a in home[r].fallback %}
+          <li>{{ m.title_block(a) }}{{ m.meta_line(a) }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">过去 {{ window_hours }} 小时暂无{{ home[r].label }}。</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+
+  <script src="localtime.js"></script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+# 新闻源注册表。method: rss | gnews (Google News RSS 兜底)
+# 后续 Phase 7 会新增 method: scrape（逐站抓页面）
+# gnews 用 query 字段拼 https://news.google.com/rss/search?q=<query>&hl=..&gl=..&ceid=..
+sources:
+  - id: bbc
+    name: BBC
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - http://feeds.bbci.co.uk/news/world/rss.xml
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: guardian
+    name: The Guardian
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://www.theguardian.com/world/rss
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+
+  - id: ap
+    name: AP 美联社
+    region: world
+    lang: en
+    method: gnews
+    query: "site:apnews.com when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: reuters
+    name: Reuters 路透
+    region: world
+    lang: en
+    method: gnews
+    query: "site:reuters.com when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: xinhua
+    name: 新华社
+    region: china
+    lang: zh
+    method: gnews
+    query: "site:news.cn when:1d"
+    gnews_locale: {hl: zh-CN, gl: CN, ceid: "CN:zh-Hans"}
+
+  - id: cctv
+    name: 央视新闻
+    region: china
+    lang: zh
+    method: gnews
+    query: "site:news.cctv.com when:1d"
+    gnews_locale: {hl: zh-CN, gl: CN, ceid: "CN:zh-Hans"}
+
+  - id: caixin
+    name: 财新
+    region: china
+    lang: zh
+    method: gnews
+    query: "site:caixin.com when:1d"
+    gnews_locale: {hl: zh-CN, gl: CN, ceid: "CN:zh-Hans"}
+
+  - id: yicai
+    name: 第一财经
+    region: china
+    lang: zh
+    method: gnews
+    query: "site:yicai.com when:1d"
+    gnews_locale: {hl: zh-CN, gl: CN, ceid: "CN:zh-Hans"}
+
+  # ---- 新增：国际 ----
+  - id: nyt
+    name: 纽约时报
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+      - https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: foxnews
+    name: Fox News
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://moxie.foxnews.com/google-publisher/latest.xml
+      - https://moxie.foxnews.com/google-publisher/world.xml
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: aljazeera
+    name: 半岛电视台
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://www.aljazeera.com/xml/rss/all.xml
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: scmp
+    name: 南华早报
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://www.scmp.com/rss/91/feed
+      - https://www.scmp.com/rss/4/feed
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: time
+    name: 时代周刊
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://time.com/feed/
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: newyorker
+    name: 纽约客
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://www.newyorker.com/feed/everything
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  # rss.cnn.com 系列是废弃 feed（条目停在 2023-2024 年），只能走 Google News
+  - id: cnn
+    name: CNN
+    region: world
+    lang: en
+    method: gnews
+    query: "site:cnn.com when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  # 周刊性质，出稿频率低：/latest 最新，其余分区多为数日前的稿子，
+  # 一次吐 300 条含大量旧稿，由 fetch 的 24h published_at 过滤兜底。
+  - id: economist
+    name: 经济学人
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://www.economist.com/latest/rss.xml
+      - https://www.economist.com/united-states/rss.xml
+      - https://www.economist.com/international/rss.xml
+      - https://www.economist.com/finance-and-economics/rss.xml
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  - id: nbcnews
+    name: NBC News
+    region: world
+    lang: en
+    method: rss
+    feeds:
+      - https://feeds.nbcnews.com/nbcnews/public/world
+      - https://feeds.nbcnews.com/nbcnews/public/news
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  # 注意：正确域名是 zaobao.com.sg（zaobao.com 在 Google News 里查不到）
+  - id: zaobao
+    name: 联合早报
+    region: world
+    lang: zh
+    method: scrape   # Google News 对该站抽不出标题，改为直接解析列表页
+
+  # ---- 新增：国内 ----
+  # Google News 对该站收录较慢，加 when:1d 会得到 0 条；这里不加，
+  # 由 fetch 自身的 24h published_at 过滤兜底（口径一致，不会引入超窗口内容）。
+  - id: cankaoxiaoxi
+    name: 参考消息
+    region: china
+    lang: zh
+    method: scrape   # 站点为 SPA，走其公开的频道 JSON 接口
+
+  # 无 RSS；Google News 对 site:infzm.com 只返回「关于我们」这类栏目页，
+  # 故直接解析列表页 + 逐篇取文章页的 data-time。
+  - id: nanfangzhoumo
+    name: 南方周末
+    region: china
+    lang: zh
+    method: scrape

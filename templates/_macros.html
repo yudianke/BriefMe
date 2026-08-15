@@ -1,0 +1,29 @@
+{# 标题块：英文源保留原标题为主标题，中文译题作副标题；中文源只显示原标题。
+   绝不用译题替换或修改媒体原标题。 #}
+{% macro title_block(a, tag='div') %}
+<{{ tag }} class="t">
+  <a class="t-main" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+  {% if a.title_zh %}<span class="t-zh">{{ a.title_zh }}</span>{% endif %}
+</{{ tag }}>
+{% endmacro %}
+
+{# 媒体标识：有 logo 图则「图 + 媒体名」；无 logo 则用媒体名徽章代替，
+   不再另外重复一遍名字（否则会出现「参考消息参考消息」这类重复）。
+   width/height 按原图比例预先算好，避免懒加载造成布局抖动。 #}
+{% macro source_mark(a, size='sm') %}
+{%- set box = logo_box(a.source, size) -%}
+{%- if box -%}
+<img class="logo logo-{{ size }}" src="{{ box.src }}" alt="{{ a.source_name }}"
+     width="{{ box.w }}" height="{{ box.h }}" loading="lazy" decoding="async"><span class="src-name">{{ a.source_name }}</span>
+{%- else -%}
+<span class="logo logo-{{ size }} logo-ph">{{ a.source_name }}</span>
+{%- endif -%}
+{% endmacro %}
+
+{# 时间：写入 UTC，由前端 JS 转成用户当地时间 #}
+{% macro time_tag(iso) %}<time class="ts" data-utc="{{ iso }}">{{ iso }}</time>{% endmacro %}
+
+{# 新闻条目的来源行：媒体标识 + 时间 #}
+{% macro meta_line(a, size='sm') %}
+<span class="src">{{ source_mark(a, size) }} · {{ time_tag(a.published_at) }}</span>
+{% endmacro %}

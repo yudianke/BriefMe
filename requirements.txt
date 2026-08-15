@@ -1,0 +1,16 @@
+# 抓取
+feedparser>=6.0
+httpx>=0.27
+beautifulsoup4>=4.12
+python-dateutil>=2.9
+pyyaml>=6.0
+
+# AI（OpenAI 兼容接口，DeepSeek/GLM/Qwen/MiniMax/Gemini/Grok/Groq 等都走它）
+openai>=1.40
+
+# 渲染
+jinja2>=3.1
+pillow>=10.0        # 压缩媒体 logo；没放 logo 时用不到，但装上无妨
+
+# 可选：只有在 .env 里配 ANTHROPIC_API_KEY（用 Claude）时才需要
+# anthropic>=0.40

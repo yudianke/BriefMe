@@ -1,0 +1,39 @@
+# ---- 密钥：绝对不能上传 ----
+.env
+.env.local
+*.key
+
+# ---- 抓来的新闻内容：不随代码分发 ----
+# 数据库与生成的站点里都是各家媒体的标题/节选，属于他人版权内容，
+# 只在本地缓存，不进仓库。克隆后跑一次 run.py 即可自行生成。
+data/
+output/
+manual/
+
+# ---- 媒体 logo：第三方商标，不随仓库分发 ----
+# 程序在缺图时会自动降级为文字标识，功能不受影响。
+# 如需显示 logo，请自行放入本目录并在 newsagg/models.py 的 SOURCE_LOGOS 登记。
+logos/*
+!logos/README.md
+
+# ---- 运行产物 ----
+*.log
+run_output.log
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 内部规划文档：含个人环境信息且部分已过时，README 已覆盖所需内容
+PLAN.md

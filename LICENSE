@@ -1,0 +1,35 @@
+MIT License
+
+Copyright (c) 2026 BriefMe contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+NOTE — 许可范围仅限本项目代码
+This license covers the source code of this project only.
+
+News headlines, excerpts, links and media logos fetched or displayed by this
+software remain the property of their respective publishers. This project does
+not redistribute them: no article text, database, or generated site is included
+in this repository.
+
+本许可只覆盖本项目的代码。程序抓取或展示的新闻标题、摘要、链接与媒体 logo
+版权均归各自媒体所有；本仓库不分发这些内容（数据库、生成的站点、logo 均已
+在 .gitignore 中排除）。

@@ -1,0 +1,75 @@
+{% import "_macros.html" as m %}<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ category }} · {{ region_label }} · 每日新闻</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-region="{{ region }}">
+  <header class="site">
+    <nav class="crumb">
+      <a href="index.html">首页</a> ›
+      <a href="{{ region_file(region) }}">{{ region_label }}</a> ›
+      <span>{{ category }}</span>
+      <button type="button" class="trivial-btn" id="trivialToggle" aria-pressed="false">隐藏琐碎新闻</button>
+    </nav>
+    <h1>{{ category }}</h1>
+    <p class="meta">{{ region_label }} · 过去 {{ window_hours }} 小时共
+      <span id="artCount">{{ articles|length }}</span> 篇 ·
+      更新于 {{ m.time_tag(generated_utc) }}</p>
+  </header>
+
+  <div class="region-body">
+    {% if media %}
+    <aside class="srcbar" id="srcbar">
+      <div class="srcbar-head">
+        <span>新闻来源</span>
+        <button type="button" class="srcbar-toggle" id="srcToggle" title="全选 / 全不选">全不选</button>
+      </div>
+      <ul class="srclist">
+        {% for s in media %}
+        <li>
+          <label>
+            <input type="checkbox" class="srcbox" value="{{ s.id }}" checked>
+            <span class="srcname">{{ s.name }}</span>
+            <span class="srccount">{{ s.count }}</span>
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="srcbar-tip" id="srcTip"></p>
+    </aside>
+    {% endif %}
+
+    <main class="region-main">
+      <section class="summary">
+        <h2>AI 事件纪要</h2>
+        {% if summary %}
+          {% for line in summary.split('\n') if line.strip() %}
+          <p class="sum-line">{{ line.strip() }}</p>
+          {% endfor %}
+          <p class="sum-note">纪要基于该分类全部来源撰写，不随左侧筛选变化。</p>
+        {% else %}
+          <p class="empty">（尚无 AI 纪要，运行 <code>python run.py</code> 后生成）</p>
+        {% endif %}
+      </section>
+
+      <section class="articles">
+        {% for a in articles %}
+        <article data-source="{{ a.source }}" data-trivial="{{ 1 if a.trivial else 0 }}">
+          {{ m.title_block(a, tag='h3') }}
+          <p>{{ m.meta_line(a, 'md') }}</p>
+          {% if a.excerpt %}<p class="excerpt">{{ a.excerpt }}</p>{% endif %}
+          <a class="orig" href="{{ a.url }}" target="_blank" rel="noopener">阅读原文 →</a>
+        </article>
+        {% endfor %}
+      </section>
+      <p class="empty" id="allHidden" hidden>已隐藏全部来源，请在左侧至少勾选一家媒体。</p>
+    </main>
+  </div>
+
+  <script src="localtime.js"></script>
+  <script src="srcfilter.js"></script>
+</body>
+</html>
