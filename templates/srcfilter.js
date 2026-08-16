@@ -18,6 +18,10 @@
   var toggleBtn = document.getElementById('srcToggle');
   var artCount = document.getElementById('artCount');
 
+  // i18n.js 若因故没加载，退化成只写中文，筛选功能本身不受影响
+  var setText = (window.NA && NA.setText) ||
+                function (el, zh) { if (el) el.textContent = zh; };
+
   var onPage = boxes.map(function (b) { return b.value; });
   var hidden = [];
   try {
@@ -77,17 +81,25 @@
     if (artCount) artCount.textContent = visibleArts;
 
     if (allHidden) allHidden.hidden = on !== 0;
+    // 这几处文本由 JS 现算，模板管不到，所以用 NA.setText 一次写入中英两份
     if (tip) {
+      var sel = on + '/' + boxes.length;
       if (on === boxes.length) {
-        tip.textContent = '显示全部 ' + boxes.length + ' 家';
+        setText(tip, '显示全部 ' + boxes.length + ' 家',
+                     'Showing all ' + boxes.length + ' sources');
       } else if (articles.length) {
-        tip.textContent = '已选 ' + on + '/' + boxes.length + ' 家 · ' + visibleArts + ' 篇';
+        setText(tip, '已选 ' + sel + ' 家 · ' + visibleArts + ' 篇',
+                     sel + ' sources · ' + visibleArts + ' articles');
       } else {
         var visCards = cards.filter(function (c) { return !c.hidden; }).length;
-        tip.textContent = '已选 ' + on + '/' + boxes.length + ' 家 · ' + visCards + ' 个分类';
+        setText(tip, '已选 ' + sel + ' 家 · ' + visCards + ' 个分类',
+                     sel + ' sources · ' + visCards + ' categories');
       }
     }
-    if (toggleBtn) toggleBtn.textContent = on === boxes.length ? '全不选' : '全选';
+    if (toggleBtn) {
+      var all = on === boxes.length;
+      setText(toggleBtn, all ? '全不选' : '全选', all ? 'None' : 'All');
+    }
   }
 
   // ---- 「隐藏琐碎新闻」开关（默认关闭）----
@@ -100,8 +112,13 @@
     if (!trivialBtn) return;
     trivialBtn.classList.toggle('on', trivialOn);
     trivialBtn.setAttribute('aria-pressed', trivialOn ? 'true' : 'false');
-    trivialBtn.title = trivialOn ? '当前：已隐藏琐碎新闻，点击恢复显示' : '当前：显示全部，点击隐藏琐碎新闻';
+    // title 是属性、塞不下两份文本，只能按当前语言现算
+    var en = window.NA ? NA.lang() === 'en' : false;
+    trivialBtn.title = trivialOn
+      ? (en ? 'Trivia hidden — click to show everything' : '当前：已隐藏琐碎新闻，点击恢复显示')
+      : (en ? 'Showing everything — click to hide trivia' : '当前：显示全部，点击隐藏琐碎新闻');
   }
+  if (window.NA) NA.onChange(paintTrivialBtn);
 
   if (trivialBtn) {
     trivialBtn.addEventListener('click', function () {

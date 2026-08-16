@@ -20,22 +20,44 @@ a { color: var(--link); }
 header.site { padding: 26px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 header.site h1 { margin: 0 0 4px; font-size: 27px; letter-spacing: -.01em; }
 .meta { color: var(--muted); font-size: 13px; margin: 2px 0 12px; }
-.mainnav { display: flex; gap: 6px; }
+/* 允许换行：窄屏放不下时按钮组整体掉到第二行，
+   而不是把导航项压成一字一行的竖条 */
+.mainnav { display: flex; gap: 6px; flex-wrap: wrap; row-gap: 8px; }
 .navlink {
+  flex: 0 0 auto; white-space: nowrap;
   padding: 7px 18px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--card); text-decoration: none; color: var(--fg); font-size: 14px;
 }
 .navlink.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .crumb {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 8px;
   font-size: 13px; color: var(--muted); margin-bottom: 8px;
 }
 .crumb a { text-decoration: none; }
 
+/* ---------- 中 / EN 双语显隐 ----------
+   中英两份文本都写在 HTML 里，这里只决定露出哪一份：
+   切换语言 = 改 <html data-lang>，没有重排、没有请求、没有闪烁。
+   默认（属性缺失或为 zh）显示中文，所以 JS 失效时也不会变成空白页。 */
+html[data-lang="en"] .i18n-zh { display: none; }
+html:not([data-lang="en"]) .i18n-en { display: none; }
+
+/* 右上角按钮组：语言切换 + 隐藏琐碎新闻 */
+.nav-actions {
+  margin-left: auto; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 6px;
+}
+.lang-btn {
+  padding: 7px 13px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--muted);
+  font-size: 13px; cursor: pointer; font-family: inherit; white-space: nowrap;
+}
+.lang-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 /* 「隐藏琐碎新闻」开关：默认关闭（灰底），开启后高亮 */
 .mainnav { align-items: center; }
 .trivial-btn {
-  margin-left: auto; flex: 0 0 auto;
+  flex: 0 0 auto;
   padding: 7px 15px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--card); color: var(--muted);
   font-size: 13px; cursor: pointer; font-family: inherit; white-space: nowrap;
@@ -147,7 +169,8 @@ ul.titles li:last-child { border-bottom: none; }
   color: var(--fg); text-decoration: none;
 }
 .t-main:hover { color: var(--accent); }
-.t-zh {
+/* 副标题（译题）：中文界面放 title_zh，英文界面放 title_en，样式共用 */
+.t-alt {
   display: block; font-size: 13.5px; font-weight: 400; line-height: 1.5;
   color: var(--muted); margin-top: 2px;
 }
@@ -200,7 +223,7 @@ ul.titles li:last-child { border-bottom: none; }
 }
 .articles h3 { margin: 0 0 3px; }
 .articles h3 .t-main { font-size: 16.5px; font-weight: 700; }
-.articles h3 .t-zh { font-size: 14px; }
+.articles h3 .t-alt { font-size: 14px; }
 .excerpt { color: var(--fg); opacity: .82; font-size: 13.5px; margin: 7px 0; }
 .orig { font-size: 13px; text-decoration: none; }
 .empty { color: var(--muted); }

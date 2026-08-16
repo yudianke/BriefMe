@@ -1,38 +1,48 @@
 {% import "_macros.html" as m %}<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-lang="zh">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ category }} · {{ region_label }} · 每日新闻</title>
+  <title data-en="{{ category_en }} · {{ region_label_en }} · BriefMe">{{ category }} · {{ region_label }} · 每日新闻</title>
+  {{ m.lang_boot() }}
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-region="{{ region }}">
   <header class="site">
     <nav class="crumb">
-      <a href="index.html">首页</a> ›
-      <a href="{{ region_file(region) }}">{{ region_label }}</a> ›
-      <span>{{ category }}</span>
-      <button type="button" class="trivial-btn" id="trivialToggle" aria-pressed="false">隐藏琐碎新闻</button>
+      <a href="index.html">{{ m.t('首页', 'Home') }}</a> ›
+      <a href="{{ region_file(region) }}">{{ m.t(region_label, region_label_en) }}</a> ›
+      <span>{{ m.t(category, category_en) }}</span>
+      <span class="nav-actions">
+        <button type="button" class="trivial-btn" id="trivialToggle" aria-pressed="false">{{
+          m.t('隐藏琐碎新闻', 'Hide trivia') }}</button>
+        {{ m.lang_btn() }}
+      </span>
     </nav>
-    <h1>{{ category }}</h1>
-    <p class="meta">{{ region_label }} · 过去 {{ window_hours }} 小时共
-      <span id="artCount">{{ articles|length }}</span> 篇 ·
-      更新于 {{ m.time_tag(generated_utc) }}</p>
+    <h1>{{ m.t(category, category_en) }}</h1>
+    <p class="meta">
+      {{ m.t(region_label, region_label_en) }} ·
+      {{ m.t('过去 %d 小时共'|format(window_hours), 'past %d hours ·'|format(window_hours)) }}
+      <span id="artCount">{{ articles|length }}</span>
+      {{ m.t('篇 · 更新于', 'articles · updated') }}
+      {{ m.time_tag(generated_utc) }}
+    </p>
   </header>
 
   <div class="region-body">
     {% if media %}
     <aside class="srcbar" id="srcbar">
       <div class="srcbar-head">
-        <span>新闻来源</span>
-        <button type="button" class="srcbar-toggle" id="srcToggle" title="全选 / 全不选">全不选</button>
+        <span>{{ m.t('新闻来源', 'Sources') }}</span>
+        <button type="button" class="srcbar-toggle" id="srcToggle">{{
+          m.t('全不选', 'None') }}</button>
       </div>
       <ul class="srclist">
         {% for s in media %}
         <li>
           <label>
             <input type="checkbox" class="srcbox" value="{{ s.id }}" checked>
-            <span class="srcname">{{ s.name }}</span>
+            <span class="srcname">{{ m.t(s.name, s.name_en) }}</span>
             <span class="srccount">{{ s.count }}</span>
           </label>
         </li>
@@ -44,14 +54,24 @@
 
     <main class="region-main">
       <section class="summary">
-        <h2>AI 事件纪要</h2>
+        <h2>{{ m.t('AI 事件纪要', 'AI event brief') }}</h2>
         {% if summary %}
-          {% for line in summary.split('\n') if line.strip() %}
-          <p class="sum-line">{{ line.strip() }}</p>
-          {% endfor %}
-          <p class="sum-note">纪要基于该分类全部来源撰写，不随左侧筛选变化。</p>
+          <div class="i18n-zh">
+            {% for line in summary.split('\n') if line.strip() %}
+            <p class="sum-line">{{ line.strip() }}</p>
+            {% endfor %}
+          </div>
+          <div class="i18n-en">
+            {% for line in summary_en.split('\n') if line.strip() %}
+            <p class="sum-line">{{ line.strip() }}</p>
+            {% endfor %}
+          </div>
+          <p class="sum-note">{{
+            m.t('纪要基于该分类全部来源撰写，不随左侧筛选变化。',
+                'The brief covers every source in this category and does not change with the filter.') }}</p>
         {% else %}
-          <p class="empty">（尚无 AI 纪要，运行 <code>python run.py</code> 后生成）</p>
+          <p class="empty">{{ m.t('（尚无 AI 纪要，运行 python run.py 后生成）',
+                                  '(No AI brief yet — run python run.py to generate one.)') }}</p>
         {% endif %}
       </section>
 
@@ -61,14 +81,18 @@
           {{ m.title_block(a, tag='h3') }}
           <p>{{ m.meta_line(a, 'md') }}</p>
           {% if a.excerpt %}<p class="excerpt">{{ a.excerpt }}</p>{% endif %}
-          <a class="orig" href="{{ a.url }}" target="_blank" rel="noopener">阅读原文 →</a>
+          <a class="orig" href="{{ a.url }}" target="_blank" rel="noopener">{{
+            m.t('阅读原文 →', 'Read the original →') }}</a>
         </article>
         {% endfor %}
       </section>
-      <p class="empty" id="allHidden" hidden>已隐藏全部来源，请在左侧至少勾选一家媒体。</p>
+      <p class="empty" id="allHidden" hidden>{{
+        m.t('已隐藏全部来源，请在左侧至少勾选一家媒体。',
+            'All sources are hidden — tick at least one on the left.') }}</p>
     </main>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="localtime.js"></script>
   <script src="srcfilter.js"></script>
 </body>

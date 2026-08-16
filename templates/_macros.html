@@ -1,9 +1,27 @@
-{# 标题块：英文源保留原标题为主标题，中文译题作副标题；中文源只显示原标题。
-   绝不用译题替换或修改媒体原标题。 #}
+{# ---------------- 双语机制 ----------------
+   页面同时输出中英两份文本，由 <html data-lang> + CSS 决定显示哪一份。
+   这样切换语言是纯 CSS 的显隐，没有重排、没有闪烁，JS 挂了也至少能看中文。
+   代价是 HTML 体积略增，对这种规模的静态页可以忽略。 #}
+{% macro t(zh, en) %}<span class="i18n-zh">{{ zh }}</span><span class="i18n-en">{{ en }}</span>{% endmacro %}
+
+{# 媒体名：中英一致时（BBC、CNN 这类）只输出一份，避免无谓的双份节点 #}
+{% macro src_label(a) %}
+{%- set en = source_en(a.source) -%}
+{%- if en and en != a.source_name -%}
+<span class="i18n-zh">{{ a.source_name }}</span><span class="i18n-en">{{ en }}</span>
+{%- else -%}{{ a.source_name }}{%- endif -%}
+{% endmacro %}
+
+{# 标题块：**主标题永远是媒体原题，绝不替换**。
+   副标题放译题，显示哪一条取决于当前界面语言：
+     中文界面 -> 显示中文译题（外文源才有）
+     英文界面 -> 显示英文译题（中文源才有，且需跑过 --en）
+   译题缺失就只显示原题，不会留空。 #}
 {% macro title_block(a, tag='div') %}
 <{{ tag }} class="t">
   <a class="t-main" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
-  {% if a.title_zh %}<span class="t-zh">{{ a.title_zh }}</span>{% endif %}
+  {% if a.title_zh %}<span class="t-alt i18n-zh">{{ a.title_zh }}</span>{% endif %}
+  {% if a.title_en %}<span class="t-alt i18n-en">{{ a.title_en }}</span>{% endif %}
 </{{ tag }}>
 {% endmacro %}
 
@@ -14,16 +32,30 @@
 {%- set box = logo_box(a.source, size) -%}
 {%- if box -%}
 <img class="logo logo-{{ size }}" src="{{ box.src }}" alt="{{ a.source_name }}"
-     width="{{ box.w }}" height="{{ box.h }}" loading="lazy" decoding="async"><span class="src-name">{{ a.source_name }}</span>
+     width="{{ box.w }}" height="{{ box.h }}" loading="lazy" decoding="async"><span class="src-name">{{ src_label(a) }}</span>
 {%- else -%}
-<span class="logo logo-{{ size }} logo-ph">{{ a.source_name }}</span>
+<span class="logo logo-{{ size }} logo-ph">{{ src_label(a) }}</span>
 {%- endif -%}
 {% endmacro %}
 
-{# 时间：写入 UTC，由前端 JS 转成用户当地时间 #}
+{# 时间：写入 UTC，由前端 JS 转成用户当地时间（相对时间的措辞也跟随界面语言） #}
 {% macro time_tag(iso) %}<time class="ts" data-utc="{{ iso }}">{{ iso }}</time>{% endmacro %}
 
 {# 新闻条目的来源行：媒体标识 + 时间 #}
 {% macro meta_line(a, size='sm') %}
 <span class="src">{{ source_mark(a, size) }} · {{ time_tag(a.published_at) }}</span>
+{% endmacro %}
+
+{# 页面 <head> 里的早期语言设置：必须内联且早于任何渲染，
+   否则英文用户每次开页都会先闪一下中文。 #}
+{% macro lang_boot() %}
+<script>try{if(localStorage.getItem('newsagg.lang')==='en'){
+var e=document.documentElement;e.setAttribute('data-lang','en');e.lang='en';}}catch(e){}</script>
+{% endmacro %}
+
+{# 中/EN 切换按钮 #}
+{% macro lang_btn() %}
+<button type="button" class="lang-btn" id="langToggle" aria-label="Language / 语言">
+  <span class="i18n-zh">EN</span><span class="i18n-en">中文</span>
+</button>
 {% endmacro %}

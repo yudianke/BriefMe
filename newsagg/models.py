@@ -18,8 +18,23 @@ CATEGORIES = [
 ]
 FALLBACK_CATEGORY = "社会"  # AI 分类失败时的兜底
 
+# ---- 页面英文版用的固定译名 ----
+# 这些是 UI 骨架文字，与 AI 无关：即使没跑 --en，切到英文界面也能正常显示。
+# 分类中文名是数据库里的主键，绝不改动；这里只是显示层的映射。
+CATEGORIES_EN = {
+    "国际政治": "World Politics", "中国": "China", "美国": "United States",
+    "欧洲": "Europe", "俄乌战争": "Russia–Ukraine War", "中东": "Middle East",
+    "经济": "Economy", "金融市场": "Markets", "科技": "Technology",
+    "AI": "AI", "产业": "Industry", "社会": "Society",
+    "科学": "Science", "医疗": "Health", "文化": "Culture",
+}
+REGIONS_EN = {"china": "China", "world": "World"}
+REGION_NAV_EN = {"china": "China News", "world": "World News"}
+
 # 需要生成中文译题的语言（英文源保留原标题，另存 title_zh）
 TRANSLATE_LANGS = {"en"}
+# 需要生成英文译题的语言（中文源保留原标题，另存 title_en；仅 --en 模式下生成）
+TRANSLATE_LANGS_EN = {"zh"}
 
 # 媒体 logo：源 id -> logos/ 下的文件名。没有对应文件的源自动回退到文字占位块。
 # 新增媒体时把文件丢进 logos/ 并在这里加一行即可。
@@ -61,7 +76,9 @@ CREATE TABLE IF NOT EXISTS articles (
     source_name  TEXT NOT NULL,
     region       TEXT NOT NULL,
     title        TEXT NOT NULL,
+    -- 译题只新增、绝不覆盖 title：zh 给中文界面看，en 给英文界面看
     title_zh     TEXT DEFAULT '',
+    title_en     TEXT DEFAULT '',
     url          TEXT NOT NULL,
     lang         TEXT NOT NULL,
     published_at TEXT NOT NULL,
@@ -84,6 +101,8 @@ CREATE TABLE IF NOT EXISTS summaries (
     category     TEXT NOT NULL,
     date         TEXT NOT NULL,
     ai_text      TEXT NOT NULL,
+    -- 英文版纪要：由 --en 把 ai_text 译过去，保证中英讲的是同一批事件
+    ai_text_en   TEXT DEFAULT '',
     generated_at TEXT NOT NULL,
     PRIMARY KEY (region, category, date)
 );
@@ -96,6 +115,10 @@ CREATE TABLE IF NOT EXISTS events (
     rank         INTEGER NOT NULL,
     title        TEXT NOT NULL,
     summary      TEXT NOT NULL,
+    -- 英文版同样由 --en 翻译中文原文而来：两种语言的 Top5 必须是同样的 5 个事件、
+    -- 同样的排序，否则切换语言时读者会看到两份对不上的榜单。
+    title_en     TEXT DEFAULT '',
+    summary_en   TEXT DEFAULT '',
     generated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_region_date ON events(region, date);

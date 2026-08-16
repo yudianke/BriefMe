@@ -22,15 +22,24 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# 轻量迁移表：老库缺哪列就补哪列（DDL 里的 CREATE TABLE IF NOT EXISTS 只对新库生效，
+# 已存在的表不会自动长出新列，所以每次加列都要在这里登记一条）。
+_MIGRATIONS = {
+    "articles":  {"title_zh": "TEXT DEFAULT ''", "title_en": "TEXT DEFAULT ''",
+                  "trivial": "INTEGER DEFAULT 0"},
+    "summaries": {"ai_text_en": "TEXT DEFAULT ''"},
+    "events":    {"title_en": "TEXT DEFAULT ''", "summary_en": "TEXT DEFAULT ''"},
+}
+
+
 def init() -> None:
     with connect() as conn:
         conn.executescript(DDL)
-        # 轻量迁移：老库的 articles 可能没有 title_zh 列
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
-        if "title_zh" not in cols:
-            conn.execute("ALTER TABLE articles ADD COLUMN title_zh TEXT DEFAULT ''")
-        if "trivial" not in cols:
-            conn.execute("ALTER TABLE articles ADD COLUMN trivial INTEGER DEFAULT 0")
+        for table, cols in _MIGRATIONS.items():
+            have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col, decl in cols.items():
+                if col not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def window_cutoff(hours: int = WINDOW_HOURS) -> str:
@@ -124,6 +133,64 @@ def set_title_zh(article_id: str, title_zh: str) -> None:
         conn.execute("UPDATE articles SET title_zh=? WHERE id=?", (title_zh, article_id))
 
 
+# ---------- 英文界面用的译文（仅 --en 模式生成） ----------
+
+def untranslated_en(hours: int = WINDOW_HOURS) -> list[sqlite3.Row]:
+    """窗口内需要英文译题、且尚未翻译的中文文章。
+
+    与 untranslated() 完全对称：那边是「外文原题 -> 中文译题」，
+    这边是「中文原题 -> 英文译题」。两边都只新增列，不动 title。
+    """
+    with connect() as conn:
+        return conn.execute(
+            """SELECT * FROM articles
+               WHERE published_at>=? AND lang='zh'
+                 AND (title_en IS NULL OR title_en='')
+               ORDER BY published_at DESC""",
+            (window_cutoff(hours),),
+        ).fetchall()
+
+
+def set_title_en(article_id: str, title_en: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE articles SET title_en=? WHERE id=?", (title_en, article_id))
+
+
+def summaries_without_en() -> list[sqlite3.Row]:
+    """当天已有中文纪要、但还没有英文版的 (region, category)。"""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT region, category, ai_text FROM summaries
+               WHERE date=? AND ai_text!='' AND (ai_text_en IS NULL OR ai_text_en='')""",
+            (today_key(),),
+        ).fetchall()
+
+
+def set_summary_en(region: str, category: str, text_en: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE summaries SET ai_text_en=? WHERE region=? AND category=? AND date=?",
+            (text_en, region, category, today_key()),
+        )
+
+
+def events_without_en() -> list[sqlite3.Row]:
+    """当天已生成、但还没有英文标题/纪要的事件。"""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT id, title, summary FROM events
+               WHERE date=? AND (title_en IS NULL OR title_en='')
+               ORDER BY region, rank""",
+            (today_key(),),
+        ).fetchall()
+
+
+def set_event_en(event_id: str, title_en: str, summary_en: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE events SET title_en=?, summary_en=? WHERE id=?",
+                     (title_en, summary_en, event_id))
+
+
 def set_excerpt(article_id: str, excerpt: str) -> None:
     with connect() as conn:
         conn.execute("UPDATE articles SET excerpt=? WHERE id=?", (excerpt, article_id))
@@ -206,5 +273,12 @@ def top_events(region: str, limit: int = 5, hours: int = WINDOW_HOURS) -> list[d
                 (e["id"], window_cutoff(hours)),
             ).fetchall()
             if arts:
-                out.append({"title": e["title"], "summary": e["summary"], "articles": arts})
+                # 英文缺失（没跑 --en，或那一步被限流打断）时回退到中文，
+                # 保证英文界面不会出现空标题。
+                out.append({
+                    "title": e["title"], "summary": e["summary"],
+                    "title_en": e["title_en"] or e["title"],
+                    "summary_en": e["summary_en"] or e["summary"],
+                    "articles": arts,
+                })
     return out

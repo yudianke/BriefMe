@@ -1,7 +1,10 @@
 # BriefMe · 今日简讯
 
+*[English](README.en.md)*
+
 把十几家中外媒体**过去 24 小时**的新闻抓回来，用 AI 分好类、写成摘要，
 生成一个可以离线打开的网页。每天一条命令，五分钟看完天下事。
+页面右上角可一键切换中文 / English。
 
 ```
 首页                中国 Top5 / 国际 Top5（同一事件跨媒体合并，只占一个位置）
@@ -85,7 +88,26 @@ python run.py --cn-only   # 只抓国内源
 python run.py --all       # 跳过联网探测，强制抓全部源
 python run.py --no-ai     # 只抓取+渲染，不调用 AI
 python run.py --manual    # 不花 API 额度，把 AI 任务交给 Claude Code 之类的助手做
+python run.py --en        # 额外生成英文版 AI 内容（见下）
 ```
+
+### 中文 / English 切换
+
+页面右上角有个切换按钮，点一下整站换语言，选择会记住。分两层：
+
+| | 需要 `--en` 吗 | 说明 |
+|---|---|---|
+| **界面文字** | 不需要 | 导航、按钮、分类名、媒体名、相对时间，全部内置双语，开箱即用 |
+| **AI 生成的内容** | 需要 | 中文报道的英文译题、分类纪要、Top5 事件 |
+
+没跑 `--en` 时切到英文，界面是英文的，AI 那部分回退显示中文——不会空白也不会报错。
+
+`--en` 的做法是**把已生成的中文结果翻译成英文**，而不是用英文再跑一遍 AI。
+这样中英两版讲的是同一批事件、同一个排序，切换语言不会看到两份对不上的榜单，
+成本也低得多。代价是每次运行的 AI 调用量增加约 40%，所以默认不开。
+
+> **原标题永远不会被替换。** 英文报道的主标题始终是英文原题，中文报道的主标题
+> 始终是中文原题；译文只作为副标题出现，显示哪一种取决于当前界面语言。
 
 ### `--manual` 模式怎么用
 
@@ -161,6 +183,7 @@ AI 服务同理：DeepSeek / GLM / Qwen / MiniMax 在大陆可直连，用它们
 ```yaml
   - id: example                 # 唯一标识
     name: 示例日报               # 页面上显示的名字
+    name_en: Example Daily      # 英文界面显示的名字（省略则回退用 name）
     region: china               # china 或 world
     lang: zh                    # zh 或 en（en 会自动生成中文译题）
     method: rss                 # rss / gnews / scrape
@@ -183,11 +206,12 @@ config/sources.yaml     新闻源清单（加源改这里）
 newsagg/
   fetch.py              抓取 + 境外连通性探测
   scrapers.py           逐站解析（遵守 robots.txt）
-  classify.py           分类      translate.py  翻译
+  classify.py           分类      translate.py  翻译（外文 -> 中文）
   events.py             Top5 事件  summarize.py  分类纪要
+  english.py            --en 模式：把中文结果译成英文
   render.py             生成静态站  ai.py        AI 服务注册表
   manual.py             --manual 模式的导出/回写
-templates/              页面模板 + CSS + 前端脚本
+templates/              页面模板 + CSS + 前端脚本（i18n.js 管中英切换）
 run.py                  一键入口      view.bat   打开已生成的网页
 ```
 

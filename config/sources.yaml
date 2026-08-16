@@ -4,6 +4,7 @@
 sources:
   - id: bbc
     name: BBC
+    name_en: BBC
     region: world
     lang: en
     method: rss
@@ -13,6 +14,7 @@ sources:
 
   - id: guardian
     name: The Guardian
+    name_en: The Guardian
     region: world
     lang: en
     method: rss
@@ -23,6 +25,7 @@ sources:
 
   - id: ap
     name: AP 美联社
+    name_en: AP
     region: world
     lang: en
     method: gnews
@@ -31,6 +34,7 @@ sources:
 
   - id: reuters
     name: Reuters 路透
+    name_en: Reuters
     region: world
     lang: en
     method: gnews
@@ -39,6 +43,7 @@ sources:
 
   - id: xinhua
     name: 新华社
+    name_en: Xinhua
     region: china
     lang: zh
     method: gnews
@@ -47,6 +52,7 @@ sources:
 
   - id: cctv
     name: 央视新闻
+    name_en: CCTV News
     region: china
     lang: zh
     method: gnews
@@ -55,6 +61,7 @@ sources:
 
   - id: caixin
     name: 财新
+    name_en: Caixin
     region: china
     lang: zh
     method: gnews
@@ -63,6 +70,7 @@ sources:
 
   - id: yicai
     name: 第一财经
+    name_en: Yicai
     region: china
     lang: zh
     method: gnews
@@ -72,6 +80,7 @@ sources:
   # ---- 新增：国际 ----
   - id: nyt
     name: 纽约时报
+    name_en: The New York Times
     region: world
     lang: en
     method: rss
@@ -82,6 +91,7 @@ sources:
 
   - id: foxnews
     name: Fox News
+    name_en: Fox News
     region: world
     lang: en
     method: rss
@@ -92,6 +102,7 @@ sources:
 
   - id: aljazeera
     name: 半岛电视台
+    name_en: Al Jazeera
     region: world
     lang: en
     method: rss
@@ -101,6 +112,7 @@ sources:
 
   - id: scmp
     name: 南华早报
+    name_en: South China Morning Post
     region: world
     lang: en
     method: rss
@@ -111,6 +123,7 @@ sources:
 
   - id: time
     name: 时代周刊
+    name_en: TIME
     region: world
     lang: en
     method: rss
@@ -120,6 +133,7 @@ sources:
 
   - id: newyorker
     name: 纽约客
+    name_en: The New Yorker
     region: world
     lang: en
     method: rss
@@ -130,6 +144,7 @@ sources:
   # rss.cnn.com 系列是废弃 feed（条目停在 2023-2024 年），只能走 Google News
   - id: cnn
     name: CNN
+    name_en: CNN
     region: world
     lang: en
     method: gnews
@@ -140,6 +155,7 @@ sources:
   # 一次吐 300 条含大量旧稿，由 fetch 的 24h published_at 过滤兜底。
   - id: economist
     name: 经济学人
+    name_en: The Economist
     region: world
     lang: en
     method: rss
@@ -152,6 +168,7 @@ sources:
 
   - id: nbcnews
     name: NBC News
+    name_en: NBC News
     region: world
     lang: en
     method: rss
@@ -163,6 +180,7 @@ sources:
   # 注意：正确域名是 zaobao.com.sg（zaobao.com 在 Google News 里查不到）
   - id: zaobao
     name: 联合早报
+    name_en: Lianhe Zaobao
     region: world
     lang: zh
     method: scrape   # Google News 对该站抽不出标题，改为直接解析列表页
@@ -172,6 +190,7 @@ sources:
   # 由 fetch 自身的 24h published_at 过滤兜底（口径一致，不会引入超窗口内容）。
   - id: cankaoxiaoxi
     name: 参考消息
+    name_en: Cankao Xiaoxi
     region: china
     lang: zh
     method: scrape   # 站点为 SPA，走其公开的频道 JSON 接口
@@ -180,6 +199,7 @@ sources:
   # 故直接解析列表页 + 逐篇取文章页的 data-time。
   - id: nanfangzhoumo
     name: 南方周末
+    name_en: Southern Weekly
     region: china
     lang: zh
     method: scrape

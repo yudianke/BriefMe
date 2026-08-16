@@ -17,7 +17,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from . import db
-from .models import CATEGORIES, REGION_NAV, REGIONS, SOURCE_LOGOS, WINDOW_HOURS
+from .models import (CATEGORIES, CATEGORIES_EN, REGION_NAV, REGION_NAV_EN, REGIONS,
+                     SOURCE_LOGOS, WINDOW_HOURS)
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output"
@@ -35,13 +36,28 @@ def region_filename(region: str) -> str:
     return f"region-{region}.html"
 
 
-def _summary(region: str, category: str) -> str:
+def _summary(region: str, category: str) -> tuple[str, str]:
+    """返回 (中文纪要, 英文纪要)。没跑过 --en 时英文回退成中文，页面不会空着。"""
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT ai_text FROM summaries WHERE region=? AND category=? AND date=?",
+            "SELECT ai_text, ai_text_en FROM summaries WHERE region=? AND category=? AND date=?",
             (region, category, db.today_key()),
         ).fetchone()
-    return row["ai_text"] if row else ""
+    if not row:
+        return "", ""
+    return row["ai_text"], (row["ai_text_en"] or row["ai_text"])
+
+
+def source_names_en() -> dict[str, str]:
+    """源 id -> 英文名（取自 config/sources.yaml 的 name_en）。
+
+    读配置而不是另建一张映射表，这样加新源时只用改 sources.yaml 一个地方。
+    """
+    try:
+        from .fetch import load_sources
+        return {s["id"]: s.get("name_en", "") for s in load_sources()}
+    except Exception:
+        return {}
 
 
 LOGO_HEIGHTS = {"xs": 13, "sm": 16, "md": 22}   # 与 style.css 保持一致
@@ -97,16 +113,21 @@ def _env() -> Environment:
     )
     env.globals["window_hours"] = WINDOW_HOURS
     env.globals["region_nav"] = REGION_NAV
+    env.globals["region_nav_en"] = REGION_NAV_EN
     env.globals["region_file"] = region_filename
     env.globals["logo_for"] = logo_for
     env.globals["logo_box"] = logo_box
     env.globals["logo_initials"] = logo_initials
+    # 媒体英文名：查不到就返回空串，模板会退回只显示中文名
+    names_en = source_names_en()
+    env.globals["source_en"] = lambda sid: names_en.get(sid, "")
     return env
 
 
 def render(hours: int = WINDOW_HOURS) -> None:
     OUT.mkdir(exist_ok=True)
     env = _env()
+    names_en = source_names_en()
     generated_utc = datetime.now(timezone.utc).isoformat()
 
     # ---------- 首页：Top5 事件 ----------
@@ -116,6 +137,7 @@ def render(hours: int = WINDOW_HOURS) -> None:
         fallback = [] if events else db.recent_articles(hours, region, limit=5)
         home[region] = {
             "label": REGION_NAV[region],
+            "label_en": REGION_NAV_EN[region],
             "events": events,
             "fallback": fallback,
             "total": len(db.recent_articles(hours, region)),
@@ -148,10 +170,13 @@ def render(hours: int = WINDOW_HOURS) -> None:
                     per_trivial[a["source"]] = per_trivial.get(a["source"], 0) + 1
             # 分类详情页左侧筛选栏用（只列该分类下出现过的媒体）
             cat_media[cat] = sorted(
-                ({"id": s, "name": per_name[s], "count": n} for s, n in per_src.items()),
+                ({"id": s, "name": per_name[s],
+                  "name_en": names_en.get(s) or per_name[s], "count": n}
+                 for s, n in per_src.items()),
                 key=lambda x: -x["count"])
             cards.append({
                 "category": cat,
+                "category_en": CATEGORIES_EN.get(cat, cat),
                 "count": counts[cat],
                 "link": cat_filename(region, cat),
                 "articles": arts[:PREVIEW_PER_CAT],
@@ -163,36 +188,46 @@ def render(hours: int = WINDOW_HOURS) -> None:
         media: dict[str, dict] = {}
         for a in db.recent_articles(hours, region):
             m = media.setdefault(a["source"],
-                                 {"id": a["source"], "name": a["source_name"], "count": 0})
+                                 {"id": a["source"], "name": a["source_name"],
+                                  "name_en": names_en.get(a["source"]) or a["source_name"],
+                                  "count": 0})
             m["count"] += 1
         media_list = sorted(media.values(), key=lambda x: -x["count"])
         # 未分类时的回退：按媒体分组，保证没有 AI 也能浏览标题
         sources = []
         if not cards:
-            by_src: dict[str, list] = {}
+            by_src: dict[str, dict] = {}
             for a in db.recent_articles(hours, region):
-                by_src.setdefault(a["source_name"], []).append(a)
-            sources = [{"name": k, "articles": v} for k, v in by_src.items()]
+                g = by_src.setdefault(a["source"], {
+                    "name": a["source_name"],
+                    "name_en": names_en.get(a["source"]) or a["source_name"],
+                    "articles": []})
+                g["articles"].append(a)
+            sources = list(by_src.values())
 
         (OUT / region_filename(region)).write_text(
             env.get_template("region.html").render(
-                region=region, label=REGION_NAV[region], cards=cards,
-                sources=sources, media=media_list, generated_utc=generated_utc),
+                region=region, label=REGION_NAV[region], label_en=REGION_NAV_EN[region],
+                cards=cards, sources=sources, media=media_list,
+                generated_utc=generated_utc),
             encoding="utf-8")
 
         # ---------- 分类详情页 ----------
         cat_tpl = env.get_template("category.html")
         for c in cards:
             arts = cat_articles[c["category"]]
+            summary, summary_en = _summary(region, c["category"])
             (OUT / c["link"]).write_text(
                 cat_tpl.render(region=region, region_label=REGION_NAV[region],
-                               category=c["category"], summary=_summary(region, c["category"]),
+                               region_label_en=REGION_NAV_EN[region],
+                               category=c["category"], category_en=c["category_en"],
+                               summary=summary, summary_en=summary_en,
                                articles=arts, media=cat_media[c["category"]],
                                generated_utc=generated_utc),
                 encoding="utf-8")
             n_cat_pages += 1
 
-    for asset in ("style.css", "localtime.js", "srcfilter.js"):
+    for asset in ("style.css", "i18n.js", "localtime.js", "srcfilter.js"):
         src = TEMPLATES / asset
         if src.exists():
             (OUT / asset).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")

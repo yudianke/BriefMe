@@ -1,20 +1,26 @@
 {% import "_macros.html" as m %}<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-lang="zh">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>每日新闻 · 首页</title>
+  <title data-en="BriefMe · Home">每日新闻 · 首页</title>
+  {{ m.lang_boot() }}
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="site">
-    <h1>每日新闻</h1>
-    <p class="meta">过去 {{ window_hours }} 小时 · 更新于 {{ m.time_tag(generated_utc) }}</p>
+    <h1>{{ m.t('每日新闻', 'BriefMe') }}</h1>
+    <p class="meta">
+      {{ m.t('过去 %d 小时 · 更新于'|format(window_hours),
+             'Past %d hours · updated'|format(window_hours)) }}
+      {{ m.time_tag(generated_utc) }}
+    </p>
     <nav class="mainnav">
-      <a class="navlink active" href="index.html">首页</a>
+      <a class="navlink active" href="index.html">{{ m.t('首页', 'Home') }}</a>
       {% for r in region_keys %}
-      <a class="navlink" href="{{ region_file(r) }}">{{ region_nav[r] }}</a>
+      <a class="navlink" href="{{ region_file(r) }}">{{ m.t(region_nav[r], region_nav_en[r]) }}</a>
       {% endfor %}
+      <span class="nav-actions">{{ m.lang_btn() }}</span>
     </nav>
   </header>
 
@@ -22,8 +28,9 @@
     {% for r in region_keys %}
     <section class="top-col">
       <h2 class="col-h">
-        {{ home[r].label }} Top 5
-        <a class="all" href="{{ region_file(r) }}">全部 {{ home[r].total }} 条 →</a>
+        {{ m.t(home[r].label ~ ' Top 5', home[r].label_en ~ ' Top 5') }}
+        <a class="all" href="{{ region_file(r) }}">{{ m.t('全部 %d 条 →'|format(home[r].total),
+                                                          'All %d →'|format(home[r].total)) }}</a>
       </h2>
 
       {% if home[r].events %}
@@ -32,11 +39,12 @@
           <li class="event">
             <div class="ev-head">
               <span class="rank">{{ loop.index }}</span>
-              <h3 class="ev-title">{{ e.title }}</h3>
+              <h3 class="ev-title">{{ m.t(e.title, e.title_en) }}</h3>
             </div>
-            {% if e.summary %}<p class="ev-sum">{{ e.summary }}</p>{% endif %}
+            {% if e.summary %}<p class="ev-sum">{{ m.t(e.summary, e.summary_en) }}</p>{% endif %}
             <div class="ev-srcs">
-              <span class="ev-n">{{ e.articles|length }} 家报道</span>
+              <span class="ev-n">{{ m.t('%d 家报道'|format(e.articles|length),
+                                        '%d outlets'|format(e.articles|length)) }}</span>
               {% for a in e.articles %}
               <a class="chip" href="{{ a.url }}" target="_blank" rel="noopener"
                  title="{{ a.title }}">{{ m.source_mark(a, 'xs') }}</a>
@@ -46,19 +54,22 @@
           {% endfor %}
         </ol>
       {% elif home[r].fallback %}
-        <p class="empty">尚未生成 Top5 事件，先显示最新报道。</p>
+        <p class="empty">{{ m.t('尚未生成 Top5 事件，先显示最新报道。',
+                                'Top 5 events not generated yet — showing the latest reports.') }}</p>
         <ul class="titles">
           {% for a in home[r].fallback %}
           <li>{{ m.title_block(a) }}{{ m.meta_line(a) }}</li>
           {% endfor %}
         </ul>
       {% else %}
-        <p class="empty">过去 {{ window_hours }} 小时暂无{{ home[r].label }}。</p>
+        <p class="empty">{{ m.t('过去 %d 小时暂无%s。'|format(window_hours, home[r].label),
+                                'No %s in the past %d hours.'|format(home[r].label_en, window_hours)) }}</p>
       {% endif %}
     </section>
     {% endfor %}
   </div>
 
+  <script src="i18n.js"></script>
   <script src="localtime.js"></script>
 </body>
 </html>

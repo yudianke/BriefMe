@@ -10,6 +10,7 @@
 
 单项命令（按需）：
   python -m newsagg.manual export           只导出待办
+  python -m newsagg.manual export --en      同上，并要求一并给出英文版
   python -m newsagg.manual load <结果.json>  回写结果
   python -m newsagg.manual status           看还剩多少待办
 """
@@ -43,6 +44,10 @@ def _pending_translations() -> list:
     return db.untranslated()[:TR_LIMIT]
 
 
+def _pending_translations_en() -> list:
+    return db.untranslated_en()[:TR_LIMIT]
+
+
 def _pending_classify() -> list:
     rows = db.recent_articles()
     with db.connect() as conn:
@@ -65,9 +70,18 @@ def _pending_summaries() -> list:
     return out
 
 
-def export() -> dict:
-    """导出全部待办，返回各项数量。"""
+def export(en: bool = False) -> dict:
+    """导出全部待办，返回各项数量。
+
+    en=True 时额外要英文版。注意这里不能像 `--en` 那样「先出中文再翻译」：
+    手动模式下中文结果要等助手写回 results.json 才存在，届时再导一轮英文待办
+    就得让用户跑两遍。所以改为在同一批待办里直接要求中英两版一起给出。
+    """
     MANUAL.mkdir(exist_ok=True)
+    # 先清掉上一轮的待办文件。任务集合会随开关变化（比如 06 只有 --en 才有），
+    # 残留的旧文件会被下面的 glob 收进清单，让助手去做一份本轮并不需要的工作。
+    for old in MANUAL.glob("0*.md"):
+        old.unlink()
     counts = {}
 
     # 1. 翻译
@@ -124,8 +138,15 @@ def export() -> dict:
            "报道篇数、时效性。3 家媒体报道的事件应排在只有 1 家报道的事件之前。\n\n"
            "**第三步**：每个事件写中文标题（≤30字）+ 一句事实纪要（谁做了什么、发生了什么、\n"
            "结果如何）。禁止评论、预测和套话。\n\n"
-           "输出到 results.json 的 `events`：\n"
-           '```json\n{"events":{"china":[{"title":"..","summary":"..","ids":["短ID"]}],"world":[...]}}\n```\n\n'
+           + ("**第四步（英文版）**：为每个事件再给一份英文标题与纪要，"
+              "内容必须与中文一一对应（同样的事件、同样的信息量），"
+              "用平实的新闻英语，人名地名机构用通行英文名。\n\n"
+              "输出到 results.json 的 `events`：\n"
+              '```json\n{"events":{"china":[{"title":"..","summary":"..",'
+              '"title_en":"..","summary_en":"..","ids":["短ID"]}],"world":[...]}}\n```\n\n'
+              if en else
+              "输出到 results.json 的 `events`：\n"
+              '```json\n{"events":{"china":[{"title":"..","summary":"..","ids":["短ID"]}],"world":[...]}}\n```\n\n')
            + "\n".join(parts))
 
     # 4. 分类纪要
@@ -149,8 +170,14 @@ def export() -> dict:
            "严格禁止：评论、观点、预测、影响分析、空泛背景，以及「值得关注的是」\n"
            "「引发广泛关注」「与此同时」「总体来看」这类套话。不写开场白和结语。\n"
            "输出 3-6 条，每条一行以「· 」开头，全文 ≤400 字。\n\n"
-           "输出到 results.json 的 `summaries`：\n"
-           '```json\n{"summaries":[{"region":"world","category":"中东","text":"· ...\\n· ..."}]}\n```\n\n'
+           + ("**英文版**：每段再给一份英文，逐条对应中文（同样的条数、同样的顺序、"
+              "同样的信息），媒体名用通行英文名（路透→Reuters、新华社→Xinhua 等）。\n\n"
+              "输出到 results.json 的 `summaries`：\n"
+              '```json\n{"summaries":[{"region":"world","category":"中东",'
+              '"text":"· ...\\n· ...","text_en":"· ...\\n· ..."}]}\n```\n\n'
+              if en else
+              "输出到 results.json 的 `summaries`：\n"
+              '```json\n{"summaries":[{"region":"world","category":"中东","text":"· ...\\n· ..."}]}\n```\n\n')
            + "\n".join(blocks))
 
     # 5. 琐碎新闻判定（只需列出琐碎的那些 ID，不必逐条表态）
@@ -172,6 +199,20 @@ def export() -> dict:
            '```json\n{"trivial":["短ID","短ID"]}\n```\n\n'
            f"共 {len(rows)} 条待判定：\n\n```\n{body}\n```\n")
 
+    # 6. 中文标题 -> 英文译题（仅 --en；与任务1 方向相反）
+    if en:
+        rows = _pending_translations_en()
+        counts["en_titles"] = len(rows)
+        if rows:
+            body = "\n".join(f"{r['id'][:12]}\t{r['title']}" for r in rows)
+            _w("06-en-titles.md",
+               "# 任务6：中文标题翻译成英文\n\n"
+               "把下面每行「短ID<TAB>中文标题」翻译成**简洁准确的英文新闻标题**。\n"
+               "人名/地名/机构用通行英文名；不加评论、不扩写、不加引号。\n\n"
+               "输出到 results.json 的 `titles_en`：\n"
+               '```json\n{"titles_en":[{"id":"短ID","en":"English headline"}]}\n```\n\n'
+               f"共 {len(rows)} 条：\n\n```\n{body}\n```\n")
+
     # 汇总说明
     todo = [f"- `{f}`" for f in sorted(p.name for p in MANUAL.glob("0*.md"))]
     _w("README.md",
@@ -181,7 +222,9 @@ def export() -> dict:
        "请依次处理下列文件，每个文件顶部都写明了任务与输出格式：\n\n"
        + "\n".join(todo) +
        "\n\n把所有结果**合并成一个** `manual/results.json`（顶层键可同时包含 "
-       "`translations` / `classifications` / `events` / `summaries`），然后运行：\n\n"
+       "`translations` / `classifications` / `events` / `summaries` / `trivial`"
+       + ("／`titles_en`，且 events 与 summaries 里要带上英文字段" if en else "")
+       + "），然后运行：\n\n"
        "```bash\npython -m newsagg.manual load manual/results.json && python -m newsagg.render\n```\n\n"
        "## 当前待办量\n\n"
        + "\n".join(f"- {k}：{v}" for k, v in counts.items()) + "\n")
@@ -203,6 +246,15 @@ def load(path: str) -> None:
                 db.set_title_zh(full, zh)
                 n += 1
         print(f"译题回写 {n} 条")
+
+    if tr := data.get("titles_en"):
+        n = 0
+        for it in tr:
+            full, en = short.get(str(it.get("id", ""))), (it.get("en") or "").strip()
+            if full and en:
+                db.set_title_en(full, en)
+                n += 1
+        print(f"英文译题回写 {n} 条")
 
     if cl := data.get("classifications"):
         n = 0
@@ -228,20 +280,32 @@ def load(path: str) -> None:
             used.update(ids)
             eid = hashlib.sha1(f"{region}|{db.today_key()}|{e['title']}".encode()).hexdigest()[:16]
             out.append({"id": eid, "title": e["title"].strip(),
-                        "summary": (e.get("summary") or "").strip(), "article_ids": ids})
+                        "summary": (e.get("summary") or "").strip(), "article_ids": ids,
+                        "title_en": (e.get("title_en") or "").strip(),
+                        "summary_en": (e.get("summary_en") or "").strip()})
         if out:
             db.save_events(region, out)
-            print(f"{REGIONS.get(region, region)} Top{len(out)} 事件已回写")
+            # save_events 是覆盖写，英文字段要在写完之后单独补上
+            for e in out:
+                if e["title_en"]:
+                    db.set_event_en(e["id"], e["title_en"], e["summary_en"])
+            n_en = sum(1 for e in out if e["title_en"])
+            print(f"{REGIONS.get(region, region)} Top{len(out)} 事件已回写"
+                  + (f"（含 {n_en} 条英文）" if n_en else ""))
 
     if sm := data.get("summaries"):
         now, today = db.utc_now(), db.today_key()
+        n_en = 0
         with db.connect() as conn:
             for s in sm:
+                text_en = (s.get("text_en") or "").strip()
+                n_en += bool(text_en)
                 conn.execute(
-                    """INSERT OR REPLACE INTO summaries(region,category,date,ai_text,generated_at)
-                       VALUES(?,?,?,?,?)""",
-                    (s["region"], s["category"], today, s["text"].strip(), now))
-        print(f"分类纪要回写 {len(sm)} 段")
+                    """INSERT OR REPLACE INTO
+                       summaries(region,category,date,ai_text,ai_text_en,generated_at)
+                       VALUES(?,?,?,?,?,?)""",
+                    (s["region"], s["category"], today, s["text"].strip(), text_en, now))
+        print(f"分类纪要回写 {len(sm)} 段" + (f"（含 {n_en} 段英文）" if n_en else ""))
 
     # 琐碎判定：给出的 ID 标为琐碎；本批送审过的全部记为「已判定」，
     # 这样未被列出的就等于「判过=不琐碎」，下次不会重复送审。
@@ -255,6 +319,7 @@ def load(path: str) -> None:
 
 def status() -> None:
     print(f"待翻译       {len(_pending_translations())}")
+    print(f"待翻译(英)   {len(_pending_translations_en())}")
     print(f"待分类       {len(_pending_classify())}")
     print(f"待汇总(分类) {len(_pending_summaries())}")
     print(f"待判定琐碎   {len(db.unjudged_trivial())}")
@@ -266,7 +331,7 @@ def status() -> None:
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "export":
-        c = export()
+        c = export(en="--en" in sys.argv)
         print("已导出到 manual/：", c)
     elif cmd == "load":
         load(sys.argv[2])
