@@ -44,7 +44,7 @@ stage can be re-run on its own:
 
 | Stage | What it does | Notes |
 |---|---|---|
-| **1. Fetch** | RSS / Google News / per-site parsing for a few outlets | Takes **headline, short excerpt, link** only — never the full article |
+| **1. Fetch** | RSS / Google News / per-site parsing for a few outlets | Takes **headline, short excerpt, link** only — never the full article; also filters out non-article pages (see below) |
 | **2. Translate** | English headline → Chinese | The original headline is never modified; the translation is stored in a separate column |
 | **3. Classify** | 1–2 categories per article | Headline first; only reads the excerpt when the headline is not enough |
 | **4. Aggregate** | Picks the Top 5 **events** per region | Several outlets covering one story count as one event; more outlets ranks it higher |
@@ -60,6 +60,15 @@ Some deliberate trade-offs:
   the AI cost stays predictable.
 - **Static output.** `output/` is just HTML — open it in a browser, copy it to a
   USB stick, or drop it on any static host.
+- **Non-article pages are dropped before they reach the database.** Google News
+  also picks up stock quote pages (`SPYA.N - | Stock Price…`), show and podcast
+  pages (`CNN Newsroom`) and topic tags (`Virginia - AP News`) and presents them
+  as articles — around 12% of what gets fetched, in practice. They carry no
+  content but would still be classified and summarised, so they are discarded at
+  fetch time. The rules live in `JUNK_TITLE_PATTERNS` in `newsagg/fetch.py`, they
+  deliberately err on the side of letting junk through rather than dropping real
+  news, and **every dropped item is logged** so you can audit for false positives
+  (see below).
 
 ---
 
@@ -102,6 +111,33 @@ python run.py --no-ai     # fetch and render only, no AI calls
 python run.py --manual    # spend no API credit — hand the AI work to a coding assistant
 python run.py --en        # also generate the English version of the AI content
 ```
+
+### Auditing what got filtered out
+
+Fetching discards non-article pages (stock quotes, show pages, topic tags). The
+risk with rules like these is dropping real news, so **every dropped item is
+logged together with the rule that caught it**:
+
+```bash
+python -m newsagg.fetch --dropped
+```
+
+Output is grouped by rule, with **the least-used rules first** — a rule that
+caught forty stock quote pages is almost certainly fine, while one that fired
+only once or twice is where a false positive would hide. Each entry shows the
+outlet, the full headline and the original link, so you can open it and check.
+
+To save it as a file (on Windows, don't use `>` — the console writes Chinese in
+cp936 and mangles it):
+
+```bash
+python -m newsagg.fetch --dropped --out data/dropped-review.txt
+```
+
+If you find real news being dropped, edit the offending entry in
+`JUNK_TITLE_PATTERNS` in `newsagg/fetch.py`; the next fetch will let it through.
+The log lives in the `dropped_titles` table, deduplicated by URL — a page that
+reappears every day occupies one row with a running count.
 
 ### Language switching
 

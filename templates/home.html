@@ -42,10 +42,12 @@
               <h3 class="ev-title">{{ m.t(e.title, e.title_en) }}</h3>
             </div>
             {% if e.summary %}<p class="ev-sum">{{ m.t(e.summary, e.summary_en) }}</p>{% endif %}
+            {# 计数与徽章都按「媒体」而非「文章」：排序权重看的是来源多样性，
+               显示成篇数会让读者看不出这一点，同一家重复出现也没有信息量。 #}
             <div class="ev-srcs">
-              <span class="ev-n">{{ m.t('%d 家报道'|format(e.articles|length),
-                                        '%d outlets'|format(e.articles|length)) }}</span>
-              {% for a in e.articles %}
+              <span class="ev-n">{{ m.t('%d 家报道'|format(e.n_sources),
+                                        '%d outlets'|format(e.n_sources)) }}</span>
+              {% for a in e.sources %}
               <a class="chip" href="{{ a.url }}" target="_blank" rel="noopener"
                  title="{{ a.title }}">{{ m.source_mark(a, 'xs') }}</a>
               {% endfor %}

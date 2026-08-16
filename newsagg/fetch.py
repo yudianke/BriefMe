@@ -53,6 +53,72 @@ def entry_datetime(entry) -> datetime | None:
     return None
 
 
+# ---- 标题黑名单 ----
+# Google News 会把媒体站内的**非新闻页**也当成条目收进来：Reuters 的股票行情页、
+# CNN 的栏目/播客/文字稿页、AP 的地区与球队标签页。这些「文章」没有任何内容，
+# 却会照常参与分类、汇总和 Top5，把结果稀释掉（实测占抓取量的 12% 左右，
+# 且高度集中在 world|金融市场 这类分类里）。这里在入库前直接丢弃。
+#
+# 取舍：**宁可漏判也不误杀**。每条规则都在真实抓取结果上逐条核对过，
+# 改动这里之后建议同样跑一遍全库对比，确认没有真新闻被带走。
+JUNK_TITLE_PATTERNS = [
+    # 行情、报价与基金说明页
+    r"Stock Price & Latest News",
+    r"Stock Quote Price and Forecast",
+    r"^About .+\([A-Z0-9]+\.[A-Za-z]{1,3}\)",              # About ProShares…(ACSP.OQ)
+    r"^\(?[A-Za-z0-9]{1,10}\.[A-Za-z]{1,3}\)?\s*[-–—|]",   # 裸代码开头：PGNY.OQ - / (ROBN.N) |
+    # 栏目页、播客推广、文字稿、站点地图
+    r"Podcast on CNN Podcasts",
+    r"^PODCAST:",
+    r"^CNN\.com\s*[-–—]\s*Transcripts",
+    r"^CNN Transcripts for ",
+    r"^(Content|Videos|Sitemap)\b.*\bCNN$",
+    r"^CNN (Newsroom|This Morning|NewsNight)\b",
+    r"^Special Bonus\s*[-–—]\s*Introducing:",
+    r"^Introducing:\s",
+    # 节目名「The <栏目> with <主持人> - CNN」。两段都必须限长：不限长会撞上正文里的
+    # with，把 "The obsession with 'Mamdani marts' isn't about groceries" 这类真新闻误杀。
+    r"^The [\w'’ ]{1,20} with [\w'’. ]{1,22}\s*[-–—]\s*CNN$",
+    # 聚合页与标签页
+    r"\|\s*(Latest|Breaking)\b.{0,30}\bNews\b",
+    r"^AP News Search",
+    r"^World News: Top & Breaking",
+    r"^Reuters\s*[-–—]\s*Reuters$",
+]
+# 逐条单独编译（而不是合并成一个大正则）：这样命中时能说出**是哪一条**规则拦的，
+# 复查误杀时可以直接定位到要改的那一行。十几条正则的开销可以忽略。
+_JUNK_RES = [(p, re.compile(p)) for p in JUNK_TITLE_PATTERNS]
+
+# AP 的地区/球队/记者标签页（Wildfires、New York Yankees、Benjamin Netanyahu…）：
+# 去掉「- AP News」后只剩一个极短的名词短语。只对 AP 后缀生效——CNN 的短标题里
+# 有真新闻，例如 "Library devastated by flood - CNN"，一视同仁就会误杀。
+_AP_TAG_SUFFIX = re.compile(r"\s[-–—|]\s*(AP News|apnews\.com)\s*$", re.I)
+AP_TAG_RULE = "<AP 短标签页：去掉「- AP News」后 ≤4 词且无标点>"
+
+
+def junk_reason(title: str) -> str | None:
+    """命中黑名单则返回**命中的那条规则**，否则返回 None。
+
+    返回规则本身而不是布尔值，是为了让被拦下的条目能连同「因何被拦」一起留档，
+    见 db.record_dropped 与 `python -m newsagg.fetch --dropped`。
+    """
+    t = (title or "").strip()
+    for pattern, rx in _JUNK_RES:
+        if rx.search(t):
+            return pattern
+    stem = _AP_TAG_SUFFIX.sub("", t).strip()
+    if stem != t and stem.isascii():
+        # 真新闻标题几乎不会短到 4 个词以内，且多半带标点
+        if len(stem.split()) <= 4 and not re.search(r"[.!?:;,]", stem):
+            return AP_TAG_RULE
+    return None
+
+
+def is_junk_title(title: str) -> bool:
+    """标题是否为媒体站内的非新闻页面（行情页、栏目页、标签页等）。"""
+    return junk_reason(title) is not None
+
+
 def clean_title(raw: str, source_name: str) -> str:
     """去掉 Google News 追加的「 - 媒体名」后缀。
 
@@ -64,13 +130,31 @@ def clean_title(raw: str, source_name: str) -> str:
     return t.lstrip("-–—|").strip()
 
 
-def fetch_source(src: dict, hours: int = 24) -> list[Article]:
+def fetch_source(src: dict, hours: int = 24, stats: dict | None = None) -> list[Article]:
+    """抓一个源。stats 若给出，会记下本次滤掉的非新闻页条数（供调用方打印）。"""
+
+    def drop_junk(arts: list[Article]) -> list[Article]:
+        """滤掉非新闻页。被拦下的一律留档，供事后复查是否误杀。"""
+        good, dropped = [], []
+        for a in arts:
+            why = junk_reason(a.title)
+            if why is None:
+                good.append(a)
+            else:
+                dropped.append({"id": a.id, "source": a.source, "source_name": a.source_name,
+                                "title": a.title, "url": a.url, "pattern": why})
+        if dropped:
+            db.record_dropped(dropped)
+        if stats is not None:
+            stats["junk"] = stats.get("junk", 0) + len(dropped)
+        return good
+
     if src["method"] == "scrape":
         from .scrapers import SCRAPERS
         fn = SCRAPERS.get(src["id"])
         if not fn:
             raise RuntimeError(f"未注册抓取器：{src['id']}（见 newsagg/scrapers.py）")
-        return fn(src, hours)
+        return drop_junk(fn(src, hours))
 
     if src["method"] == "gnews":
         urls = [build_gnews_url(src["query"], src["gnews_locale"])]
@@ -105,7 +189,7 @@ def fetch_source(src: dict, hours: int = 24) -> list[Article]:
                 excerpt=clean_excerpt(e.get("summary", "")),
                 fetched_at=now_iso,
             ))
-    return out
+    return drop_junk(out)
 
 
 # 境外源多数托管在这些域名上；用它们探测「境外网络是否可达」
@@ -179,22 +263,74 @@ def run(hours: int = 24, cn_only: bool = False, skip_probe: bool = False) -> Non
                   f"{'、'.join(s['name'] for s in skipped[:6])}"
                   f"{' 等' if len(skipped) > 6 else ''}")
 
-    total_new = 0
+    total_new, total_junk = 0, 0
     print(f"抓取窗口：过去 {hours} 小时\n" + "-" * 48)
     for src in sources:
         try:
-            articles = fetch_source(src, hours)
+            stats: dict = {}
+            articles = fetch_source(src, hours, stats)
+            junk = stats.get("junk", 0)
+            total_junk += junk
             new = db.upsert_articles(articles)
             total_new += new
             status = "OK " if articles else "空  "
             print(f"[{status}] {src['id']:<9} {src['name']:<8} "
-                  f"取到 {len(articles):>3} 条，新增 {new:>3}  ({src['method']})")
+                  f"取到 {len(articles):>3} 条，新增 {new:>3}"
+                  f"{f'，滤除 {junk:>2} 条非新闻页' if junk else ''}  ({src['method']})")
         except Exception as ex:  # 单源失败不阻塞整体
             print(f"[ERR] {src['id']:<9} {src['name']:<8} 失败: {ex}")
     print("-" * 48)
     print(f"总新增 {total_new} 条 -> {db.DB_PATH}")
+    if total_junk:
+        print(f"已滤除 {total_junk} 条非新闻页（行情/栏目/标签页，见 fetch.JUNK_TITLE_PATTERNS）")
+
+
+def dropped_report() -> str:
+    """把留档整理成一份可通读的清单，按规则分组。
+
+    分组按「该规则总共拦了多少条」升序：命中数少的排在最前面。
+    拦了几十条行情页的规则基本不会错，只命中一两条的那条才最可能是误伤，
+    把它放在开头，复查时第一眼就能看到。
+    """
+    rows = db.dropped_by_pattern()
+    if not rows:
+        return "暂无留档。跑一次 python run.py 之后再来看。"
+
+    out = [f"被过滤的非新闻页：{len(rows)} 条（按 URL 去重）", ""]
+    out.append("按命中规则分组，**命中数少的排在前面——那里最可能藏着误杀**。")
+    out.append("发现真新闻被拦，就去 newsagg/fetch.py 的 JUNK_TITLE_PATTERNS 改对应那条规则。")
+    out.append("")
+    cur = None
+    for r in rows:
+        if r["pattern"] != cur:
+            cur = r["pattern"]
+            out.append("─" * 76)
+            out.append(f"规则  {r['pattern']}")
+            out.append(f"      共拦下 {r['n_pattern']} 条"
+                       + ("   <- 命中很少，重点核对" if r["n_pattern"] <= 3 else ""))
+        seen = f" ×{r['n_seen']}" if r["n_seen"] > 1 else ""
+        out.append(f"    [{r['source_name']}] {r['title']}{seen}")
+        # 完整输出 URL：截断的 Google News 跳转链接点不开，而复查时要能直接打开核对
+        out.append(f"        {r['url']}")
+    out.append("─" * 76)
+    out.append(f"\n留档表：dropped_titles（{db.DB_PATH}）")
+    return "\n".join(out)
+
+
+def show_dropped(out_path: str | None = None) -> None:
+    text = dropped_report()
+    if out_path:
+        # 显式写 UTF-8：Windows 控制台默认 cp936，直接用 > 重定向会把中文写乱
+        Path(out_path).write_text(text, encoding="utf-8")
+        print(f"清单已写入 {out_path}（UTF-8，共 {len(text.splitlines())} 行）")
+    else:
+        print(text)
 
 
 if __name__ == "__main__":
-    hrs = int(sys.argv[1]) if len(sys.argv) > 1 else 24
-    run(hrs)
+    if "--dropped" in sys.argv:
+        i = sys.argv.index("--out") if "--out" in sys.argv else -1
+        show_dropped(sys.argv[i + 1] if i >= 0 and i + 1 < len(sys.argv) else None)
+    else:
+        hrs = int(sys.argv[1]) if len(sys.argv) > 1 else 24
+        run(hrs)

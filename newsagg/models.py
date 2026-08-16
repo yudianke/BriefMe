@@ -90,6 +90,21 @@ CREATE TABLE IF NOT EXISTS articles (
 CREATE INDEX IF NOT EXISTS idx_articles_pub ON articles(published_at);
 CREATE INDEX IF NOT EXISTS idx_articles_region ON articles(region);
 
+-- 被标题黑名单拦下的条目。留档只为一件事：**事后复查有没有误杀**。
+-- 记下命中的具体规则，发现真新闻被拦时可以直接定位到是哪条规则过宽。
+-- 按 url 哈希去重，同一个行情页天天出现也只占一行，n_seen 计数。
+CREATE TABLE IF NOT EXISTS dropped_titles (
+    id          TEXT PRIMARY KEY,
+    source      TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    pattern     TEXT NOT NULL,
+    first_seen  TEXT NOT NULL,
+    last_seen   TEXT NOT NULL,
+    n_seen      INTEGER DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS article_categories (
     article_id TEXT NOT NULL,
     category   TEXT NOT NULL,

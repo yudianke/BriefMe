@@ -56,18 +56,9 @@ def _pending_classify() -> list:
 
 
 def _pending_summaries() -> list:
-    today = db.today_key()
-    out = []
-    with db.connect() as conn:
-        have = {(r[0], r[1]) for r in conn.execute(
-            "SELECT region,category FROM summaries WHERE date=?", (today,))}
-    for region in REGIONS:
-        for cat in CATEGORIES:
-            if (region, cat) in have:
-                continue
-            if db.recent_by_category(region, cat):
-                out.append((region, cat))
-    return out
+    """待写纪要的 (region, category)，含「已写过但素材已更新」的（见 db.summaries_todo）。"""
+    order = {(r, c): (i, j) for i, r in enumerate(REGIONS) for j, c in enumerate(CATEGORIES)}
+    return sorted(db.summaries_todo(), key=lambda k: order.get(k, (99, 99)))
 
 
 def export(en: bool = False) -> dict:
@@ -315,6 +306,13 @@ def load(path: str) -> None:
         judged = [r["id"] for r in db.unjudged_trivial()]
         db.mark_judged(judged)
         print(f"琐碎新闻标记 {n} 条（本批 {len(judged)} 条已完成判定）")
+
+    # 导出是一次性快照：写它的时候这批文章还没分类，所以纪要任务不可能包含它们。
+    # 分类回写之后才谈得上「这些分类该写纪要了」，此时需要再导出一轮。
+    if pend := _pending_summaries():
+        print(f"\n提示：分类回写后有 {len(pend)} 个分类的纪要待写（新分类，或原纪要素材已更新）。")
+        print("      再跑一次导出即可拿到这批任务：")
+        print("        python -m newsagg.manual export")
 
 
 def status() -> None:

@@ -31,18 +31,16 @@ def summarize(hours: int = WINDOW_HOURS, force: bool = False) -> int:
     today = db.today_key()
     now_iso = db.utc_now()
     made = 0
+    # 待写清单：没写过的，加上写过但之后又抓到新文章的（纪要按日期缓存、
+    # 窗口却是滚动 24 小时，不重算就会一直停在当天第一次运行的素材上）
+    todo = None if force else set(db.summaries_todo(hours))
     for region in REGIONS:
         for cat in CATEGORIES:
             arts = db.recent_by_category(region, cat, hours)
             if not arts:
                 continue
-            if not force:
-                with db.connect() as conn:
-                    if conn.execute(
-                        "SELECT 1 FROM summaries WHERE region=? AND category=? AND date=?",
-                        (region, cat, today),
-                    ).fetchone():
-                        continue
+            if todo is not None and (region, cat) not in todo:
+                continue
             listing = "\n".join(
                 f"- [{a['source_name']}] {a['title']}"
                 + (f"｜{a['excerpt'][:100]}" if a["excerpt"] else "")

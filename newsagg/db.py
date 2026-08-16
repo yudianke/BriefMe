@@ -116,6 +116,38 @@ def category_counts(region: str, hours: int = WINDOW_HOURS) -> dict[str, int]:
     return {r["cat"]: r["n"] for r in rows}
 
 
+def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
+    """当天需要生成或**重写**纪要的 (region, category)。
+
+    两种情况都要写：
+      1. 今天还没写过；
+      2. 写过，但之后又抓到了属于该分类的文章。
+
+    第 2 条是必要的：纪要按日期缓存，而文章窗口是滚动 24 小时，两者口径不同。
+    同一天内文章可以整批换掉——早上的稿子滚出窗口、新稿子进来——若只看
+    「今天写过没有」，纪要就会一直停在当天第一次运行时的素材上。
+    用 fetched_at 而不是 published_at 比较：判断依据是「这篇有没有被那次汇总
+    看到过」，取决于何时入库，而不是媒体何时发稿。
+    """
+    with connect() as conn:
+        newest = conn.execute(
+            """SELECT a.region, c.category, MAX(a.fetched_at) AS newest
+               FROM articles a JOIN article_categories c ON c.article_id = a.id
+               WHERE a.published_at >= ?
+               GROUP BY a.region, c.category""",
+            (window_cutoff(hours),),
+        ).fetchall()
+        done = {(r["region"], r["category"]): r["generated_at"] for r in conn.execute(
+            "SELECT region, category, generated_at FROM summaries WHERE date=?", (today_key(),))}
+    todo = []
+    for r in newest:
+        key = (r["region"], r["category"])
+        gen = done.get(key)
+        if gen is None or (r["newest"] or "") > gen:
+            todo.append(key)
+    return todo
+
+
 def untranslated(hours: int = WINDOW_HOURS) -> list[sqlite3.Row]:
     """窗口内需要中文译题、且尚未翻译的外文文章。"""
     with connect() as conn:
@@ -232,6 +264,41 @@ def mark_judged(article_ids: list[str]) -> None:
                          [(i,) for i in article_ids])
 
 
+# ---------- 被过滤条目的留档（供复查误杀） ----------
+
+def record_dropped(items: list[dict]) -> None:
+    """记下被标题黑名单拦掉的条目。同一 URL 重复出现只累加 n_seen，不新增行。"""
+    if not items:
+        return
+    now = utc_now()
+    with connect() as conn:
+        for it in items:
+            conn.execute(
+                """INSERT INTO dropped_titles
+                   (id, source, source_name, title, url, pattern, first_seen, last_seen, n_seen)
+                   VALUES (?,?,?,?,?,?,?,?,1)
+                   ON CONFLICT(id) DO UPDATE SET
+                     n_seen = n_seen + 1, last_seen = excluded.last_seen""",
+                (it["id"], it["source"], it["source_name"], it["title"],
+                 it["url"], it["pattern"], now, now),
+            )
+
+
+def dropped_by_pattern() -> list[sqlite3.Row]:
+    """全部留档条目，按「该规则总共拦了多少条」升序排。
+
+    升序是刻意的：拦了几十条行情页的规则基本不会错，而只命中一两条的规则
+    才是误杀高发区，排在最前面最先被看到。
+    """
+    with connect() as conn:
+        return conn.execute(
+            """SELECT d.*, c.n_pattern FROM dropped_titles d
+               JOIN (SELECT pattern, COUNT(*) n_pattern FROM dropped_titles
+                     GROUP BY pattern) c ON c.pattern = d.pattern
+               ORDER BY c.n_pattern ASC, d.pattern, d.n_seen DESC, d.title"""
+        ).fetchall()
+
+
 # ---------- 事件（Top5） ----------
 
 def save_events(region: str, events: list[dict]) -> None:
@@ -273,6 +340,11 @@ def top_events(region: str, limit: int = 5, hours: int = WINDOW_HOURS) -> list[d
                 (e["id"], window_cutoff(hours)),
             ).fetchall()
             if arts:
+                # 按媒体去重，每家只留最新一篇。首页要展示的是「这件事有几家在报」，
+                # 而不是「总共几篇稿」——同一家发四篇不等于四家报道，重复徽章也没有信息量。
+                by_src: dict[str, sqlite3.Row] = {}
+                for a in arts:                      # arts 已按发布时间倒序
+                    by_src.setdefault(a["source"], a)
                 # 英文缺失（没跑 --en，或那一步被限流打断）时回退到中文，
                 # 保证英文界面不会出现空标题。
                 out.append({
@@ -280,5 +352,7 @@ def top_events(region: str, limit: int = 5, hours: int = WINDOW_HOURS) -> list[d
                     "title_en": e["title_en"] or e["title"],
                     "summary_en": e["summary_en"] or e["summary"],
                     "articles": arts,
+                    "sources": list(by_src.values()),
+                    "n_sources": len(by_src),
                 })
     return out
