@@ -13,7 +13,7 @@ REGION_NAV = {"china": "中国新闻", "world": "国际新闻"}
 
 # 主题分类（由 AI 判定，一篇 1-2 类，只能用这里的值）
 CATEGORIES = [
-    "国际政治", "中国", "美国", "欧洲", "俄乌战争", "中东",
+    "国际政治", "中国", "美国", "欧洲", "日本", "俄乌战争", "中东",
     "经济", "金融市场", "科技", "AI", "产业", "社会", "科学", "医疗", "文化",
 ]
 FALLBACK_CATEGORY = "社会"  # AI 分类失败时的兜底
@@ -23,13 +23,19 @@ FALLBACK_CATEGORY = "社会"  # AI 分类失败时的兜底
 # 分类中文名是数据库里的主键，绝不改动；这里只是显示层的映射。
 CATEGORIES_EN = {
     "国际政治": "World Politics", "中国": "China", "美国": "United States",
-    "欧洲": "Europe", "俄乌战争": "Russia–Ukraine War", "中东": "Middle East",
+    "欧洲": "Europe", "日本": "Japan", "俄乌战争": "Russia–Ukraine War", "中东": "Middle East",
     "经济": "Economy", "金融市场": "Markets", "科技": "Technology",
     "AI": "AI", "产业": "Industry", "社会": "Society",
     "科学": "Science", "医疗": "Health", "文化": "Culture",
 }
 REGIONS_EN = {"china": "China", "world": "World"}
 REGION_NAV_EN = {"china": "China News", "world": "World News"}
+
+# 「要闻简报」关注的分类：只看政治/军事/经济层面的重大冲突与进展。
+# 想调整简报盯什么，改这一行即可，不必动别处。
+BRIEFING_CATEGORIES = ["国际政治", "中国", "美国", "欧洲", "俄乌战争", "中东", "经济", "金融市场"]
+BRIEFING_NAV = "要闻简报"
+BRIEFING_NAV_EN = "Briefing"
 
 # 需要生成中文译题的语言（英文源保留原标题，另存 title_zh）
 TRANSLATE_LANGS = {"en"}
@@ -121,6 +127,17 @@ CREATE TABLE IF NOT EXISTS summaries (
     generated_at TEXT NOT NULL,
     PRIMARY KEY (region, category, date)
 );
+
+-- 「要闻简报」：跨地区的主题式提要，只盯政治/军事/经济层面的重大冲突与进展。
+-- 不按日期做主键：内容窗口是滚动 24 小时，按日历日缓存会在 UTC 零点整批失效
+-- （见 db.summaries_todo 的同类教训）。这里只追加，读取时取 generated_at 最新的一条。
+CREATE TABLE IF NOT EXISTS briefings (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at TEXT NOT NULL,
+    ai_text      TEXT NOT NULL,
+    ai_text_en   TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_briefings_gen ON briefings(generated_at);
 
 -- Top5 事件（按事件而非单篇文章聚合）
 CREATE TABLE IF NOT EXISTS events (

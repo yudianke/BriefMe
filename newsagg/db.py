@@ -323,6 +323,67 @@ def dropped_by_pattern() -> list[sqlite3.Row]:
         ).fetchall()
 
 
+# ---------- 要闻简报 ----------
+
+def save_briefing(text: str, text_en: str = "") -> None:
+    with connect() as conn:
+        conn.execute("INSERT INTO briefings(generated_at, ai_text, ai_text_en) VALUES(?,?,?)",
+                     (utc_now(), text, text_en))
+
+
+def latest_briefing() -> sqlite3.Row | None:
+    """最新一份简报。取最新而非「今天的」——窗口是滚动的，日历日无意义。"""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM briefings ORDER BY generated_at DESC LIMIT 1").fetchone()
+
+
+def briefing_stale(hours: int = WINDOW_HOURS, ratio: float = RESUMMARIZE_RATIO) -> bool:
+    """简报是否需要重写：从未写过，或此后新入库的相关文章已占窗口的 ratio 以上。
+
+    与 summaries_todo 用同一套判断口径，避免同一天多跑几次就反复烧额度。
+    """
+    from .models import BRIEFING_CATEGORIES
+    last = latest_briefing()
+    if last is None:
+        return True
+    marks = ",".join("?" * len(BRIEFING_CATEGORIES))
+    with connect() as conn:
+        total, fresh = conn.execute(
+            f"""SELECT COUNT(*), SUM(CASE WHEN a.fetched_at > ? THEN 1 ELSE 0 END)
+                FROM articles a JOIN article_categories c ON c.article_id = a.id
+                WHERE a.published_at >= ? AND c.category IN ({marks})""",
+            (last["generated_at"], window_cutoff(hours), *BRIEFING_CATEGORIES),
+        ).fetchone()
+    if not total:
+        return False
+    return (fresh or 0) >= max(1, total * ratio)
+
+
+def briefing_material(hours: int = WINDOW_HOURS, per_cat: int = 14) -> list[sqlite3.Row]:
+    """简报素材：关注分类下、窗口内、非琐碎的报道，按分类各取最新若干条。
+
+    排除 trivial：简报要的是重大冲突与进展，花边只会稀释篇幅。
+    """
+    from .models import BRIEFING_CATEGORIES
+    out, seen = [], set()
+    for cat in BRIEFING_CATEGORIES:
+        with connect() as conn:
+            rows = conn.execute(
+                """SELECT DISTINCT a.*, c.category AS cat FROM articles a
+                   JOIN article_categories c ON c.article_id = a.id
+                   WHERE c.category = ? AND a.published_at >= ?
+                     AND COALESCE(a.trivial, 0) = 0
+                   ORDER BY a.published_at DESC LIMIT ?""",
+                (cat, window_cutoff(hours), per_cat),
+            ).fetchall()
+        for r in rows:
+            if r["id"] not in seen:
+                seen.add(r["id"])
+                out.append(r)
+    return out
+
+
 # ---------- 事件（Top5） ----------
 
 def save_events(region: str, events: list[dict]) -> None:

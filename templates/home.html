@@ -15,13 +15,7 @@
              'Past %d hours · updated'|format(window_hours)) }}
       {{ m.time_tag(generated_utc) }}
     </p>
-    <nav class="mainnav">
-      <a class="navlink active" href="index.html">{{ m.t('首页', 'Home') }}</a>
-      {% for r in region_keys %}
-      <a class="navlink" href="{{ region_file(r) }}">{{ m.t(region_nav[r], region_nav_en[r]) }}</a>
-      {% endfor %}
-      <span class="nav-actions">{{ m.lang_btn() }}</span>
-    </nav>
+    {{ m.mainnav('home') }}
   </header>
 
   <div class="top-cols">

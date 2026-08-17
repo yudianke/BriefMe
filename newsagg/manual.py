@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from . import db
-from .models import CATEGORIES, REGIONS, WINDOW_HOURS
+from .models import BRIEFING_CATEGORIES, CATEGORIES, REGIONS, WINDOW_HOURS
 
 MANUAL = Path(__file__).resolve().parent.parent / "manual"
 TOP_N = 5
@@ -190,13 +190,48 @@ def export(en: bool = False) -> dict:
            '```json\n{"trivial":["短ID","短ID"]}\n```\n\n'
            f"共 {len(rows)} 条待判定：\n\n```\n{body}\n```\n")
 
-    # 6. 中文标题 -> 英文译题（仅 --en；与任务1 方向相反）
+    # 6. 要闻简报（跨地区主题提要）
+    if db.briefing_stale():
+        mat = db.briefing_material()
+        counts["briefing"] = len(mat)
+        if mat:
+            by_cat: dict[str, list] = {}
+            for r in mat:
+                by_cat.setdefault(r["cat"], []).append(r)
+            blocks = []
+            for cat in BRIEFING_CATEGORIES:
+                items = by_cat.get(cat)
+                if not items:
+                    continue
+                lines = "\n".join(
+                    f"- [{a['source_name']}] {a['title']}"
+                    + (f" / {a['title_zh']}" if a["title_zh"] else "")
+                    + (f"｜{a['excerpt'][:90]}" if a["excerpt"] else "")
+                    for a in items)
+                blocks.append(f"## {cat}\n\n```\n{lines}\n```\n")
+            _w("06-briefing.md",
+               "# 任务6：要闻简报\n\n"
+               "读者是长期关注地缘政治的人，已知基本背景，只想快速掌握"
+               "「过去 24 小时里哪几件事真的推动了局势」。\n\n"
+               "**选题**：只写政治、军事、经济层面的重大冲突与进展，重点区域为中国、美国、\n"
+               "欧洲、俄乌、中东。重要性依次看：是否改变了力量对比/谈判格局/政策方向；\n"
+               "是否有多家媒体独立报道；是否有具体新事实（决定、数字、行动）而非表态。\n"
+               "人事变动、单家媒体的评论、例行会晤、企业财报一律不写。\n\n"
+               "**写法**：分 4-6 段，每段一件事，段首用「■ 」加不超过 16 字的短标题，\n"
+               "换行后写 2-3 句正文，交代谁做了什么、结果如何、把局势推到了哪一步。\n"
+               "每段结尾用括号标注全部报道该事件的媒体，如（路透/BBC/新华社）。\n\n"
+               "**禁止**：评论、立场、预测、影响分析、背景铺垫和套话。全文不超过 700 字。\n\n"
+               "输出到 results.json 的 `briefing`（一个字符串，段间用换行分隔）：\n"
+               '```json\n{"briefing":"■ 短标题\\n正文……（路透/BBC）\\n\\n■ 短标题\\n正文……（新华社）"}\n```\n\n'
+               f"共 {len(mat)} 篇素材：\n\n" + "\n".join(blocks))
+
+    # 7. 中文标题 -> 英文译题（仅 --en；与任务1 方向相反）
     if en:
         rows = _pending_translations_en()
         counts["en_titles"] = len(rows)
         if rows:
             body = "\n".join(f"{r['id'][:12]}\t{r['title']}" for r in rows)
-            _w("06-en-titles.md",
+            _w("07-en-titles.md",
                "# 任务6：中文标题翻译成英文\n\n"
                "把下面每行「短ID<TAB>中文标题」翻译成**简洁准确的英文新闻标题**。\n"
                "人名/地名/机构用通行英文名；不加评论、不扩写、不加引号。\n\n"
@@ -297,6 +332,10 @@ def load(path: str) -> None:
                        VALUES(?,?,?,?,?,?)""",
                     (s["region"], s["category"], today, s["text"].strip(), text_en, now))
         print(f"分类纪要回写 {len(sm)} 段" + (f"（含 {n_en} 段英文）" if n_en else ""))
+
+    if (bf := data.get("briefing")) and str(bf).strip():
+        db.save_briefing(str(bf).strip())
+        print(f"要闻简报回写（{str(bf).count('■')} 段）")
 
     # 琐碎判定：给出的 ID 标为琐碎；本批送审过的全部记为「已判定」，
     # 这样未被列出的就等于「判过=不琐碎」，下次不会重复送审。

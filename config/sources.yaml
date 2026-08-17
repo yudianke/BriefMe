@@ -177,6 +177,39 @@ sources:
       - https://feeds.nbcnews.com/nbcnews/public/news
     gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
 
+  # 官方 RSS 各频道 24h 内只有个位数条目（politics-news 常滞后一天以上），
+  # 走 Google News 能稳定拿到近百条真政治报道。
+  - id: politico
+    name: Politico
+    name_en: Politico
+    region: world
+    lang: en
+    method: gnews
+    query: "site:politico.com when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  # NHK 官方 RSS 实测已停更（最新条目在 200 小时以前），只能走 Google News。
+  # 必须限定 nhkworld 英文版：site:nhk.or.jp 会把整站的节目单、剧集宣传都带进来。
+  - id: nhk
+    name: NHK
+    name_en: NHK World
+    region: world
+    lang: en
+    method: gnews
+    query: "site:www3.nhk.or.jp/nhkworld when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
+  # 共同社日文官方 RSS 里是企业公关稿（展会、促销），英文 RSS 为空，
+  # 因此限定英文新闻站 english.kyodonews.net 走 Google News。
+  - id: kyodo
+    name: 共同社
+    name_en: Kyodo News
+    region: world
+    lang: en
+    method: gnews
+    query: "site:english.kyodonews.net when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
   # 注意：正确域名是 zaobao.com.sg（zaobao.com 在 Google News 里查不到）
   - id: zaobao
     name: 联合早报

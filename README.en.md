@@ -2,14 +2,16 @@
 
 *[中文](README.md)*
 
-BriefMe pulls the **last 24 hours** of news from around twenty Chinese and
+BriefMe pulls the **last 24 hours** of news from twenty-odd Chinese and
 international outlets, has an AI sort it into categories and write short briefs,
 and generates a web page you can open offline. One command a day, five minutes
 to read. A button in the top-right switches the whole site between 中文 and English.
 
 ```
 Home                 China Top 5 / World Top 5 (one slot per event, not per article)
- ├─ China News       four-column grid of 15 categories, filter by outlet on the left
+ ├─ Briefing         cross-region digest of political/military/economic news,
+ │                   each point citing the outlets that reported it
+ ├─ China News       four-column grid of 16 categories, filter by outlet on the left
  │   └─ World Politics   AI event brief + every report in that category
  └─ World News       original headline stays; the translation goes underneath
 ```
@@ -39,7 +41,7 @@ later, double-click `view.bat` — no need to re-run anything.
 
 ## How it works
 
-Five stages. Each one writes its output to a local SQLite database, so any
+Six stages. Each one writes its output to a local SQLite database, so any
 stage can be re-run on its own:
 
 | Stage | What it does | Notes |
@@ -48,7 +50,8 @@ stage can be re-run on its own:
 | **2. Translate** | English headline → Chinese | The original headline is never modified; the translation is stored in a separate column |
 | **3. Classify** | 1–2 categories per article | Headline first; only reads the excerpt when the headline is not enough |
 | **4. Aggregate** | Picks the Top 5 **events** per region | Several outlets covering one story count as one event; more outlets ranks it higher |
-| **5. Summarise + render** | One brief per category, then static HTML | Plain static pages, no server required |
+| **5. Summarise** | One brief per category, plus a cross-region **Briefing** | The Briefing covers politics/military/economics only — see below |
+| **6. Render** | Static HTML | Plain static pages, no server required |
 
 Some deliberate trade-offs:
 
@@ -163,6 +166,42 @@ If you find real news being dropped, edit the offending entry in
 The log lives in the `dropped_titles` table, deduplicated by URL — a page that
 reappears every day occupies one row with a running count.
 
+The reverse also matters: **after you add a rule, pages already in the database
+stay there** and keep showing up on the pages. This re-checks the whole database
+against the current rules (preview only by default):
+
+```bash
+python -m newsagg.fetch --purge-junk        # review the list first
+python -m newsagg.fetch --purge-junk --yes  # delete once you're satisfied
+```
+
+Anything removed is logged to `dropped_titles` too, so `--dropped` can still show it.
+
+### The Briefing page
+
+The **Briefing** tab is a cross-region digest covering only political, military
+and economic conflicts and developments (China / US / Europe / Ukraine / Middle
+East). Each paragraph ends with the outlets that reported it. Unlike the
+per-category briefs, this page **makes choices**: categories each get a
+paragraph, the Briefing picks only the few stories that mattered.
+
+**A known limitation, worth reading before you rely on it.** This project stores
+only headlines and short excerpts (see [Content and copyright](#content-and-copyright)),
+and roughly 60% of the items in a given window are **headline-only**. Asked to
+turn a single headline into prose, the model has a real chance of supplying
+detail the headline never contained — observed failures include an invented
+person and job title, and `stockpiling` reversed into "releasing reserves" with
+a fabricated figure. The mitigations in place: every source item is labelled
+*has excerpt* / *headline only*, the prompt forbids adding any unstated detail,
+cited outlet names must be copied verbatim from the material, and non-Chinese
+output is automatically retried. These reduced fabrication substantially but did
+**not** eliminate it.
+
+So treat the page as "which few things happened, and who reported them", and
+**check details against the cited outlet**. If that isn't reliable enough for
+you, delete the `("要闻简报", "newsagg.briefing", "build")` line from `STEPS` in
+`run.py` to turn it off; nothing else is affected.
+
 ### Language switching
 
 The button in the top-right switches the whole site; your choice is remembered.
@@ -238,8 +277,8 @@ this for you and you never need to remember it.
 At startup the program probes whether overseas sites are reachable, over the
 same network path used for fetching:
 
-- **Reachable** → all 20 sources are fetched normally
-- **Not reachable** → it says so, skips the 14 overseas sources, and fetches the
+- **Reachable** → all 23 sources are fetched normally
+- **Not reachable** → it says so, skips the 17 overseas sources, and fetches the
   6 mainland outlets (Xinhua, CCTV News, Caixin, Yicai, Cankao Xiaoxi,
   Southern Weekly). The pages are generated as usual.
 
@@ -298,6 +337,7 @@ newsagg/
   scrapers.py           per-site parsing (respects robots.txt)
   classify.py           categories    translate.py  foreign -> Chinese headlines
   events.py             Top 5 events  summarize.py  category briefs
+  briefing.py           the cross-region Briefing page
   english.py            --en mode: translates the Chinese output into English
   render.py             static site   ai.py         AI provider registry
   manual.py             export/load for --manual mode

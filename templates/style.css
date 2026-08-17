@@ -208,6 +208,26 @@ ul.titles li:last-child { border-bottom: none; }
 .logo-md.logo-ph { font-size: 12px; }
 .more { font-size: 12.5px; color: var(--accent); text-decoration: none; margin-top: 8px; }
 
+/* ---------- 要闻简报 ----------
+   单栏、限宽：这是要通读的文字，不是扫读的列表，行长控制在 40 字左右最舒服 */
+.brief-main { max-width: 760px; }
+.brief {
+  background: var(--card); border: 1px solid var(--line);
+  border-left: 4px solid var(--accent); border-radius: 10px;
+  padding: 20px 26px 22px;
+}
+.brief-item { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.brief-item:first-child { padding-top: 0; }
+.brief-item:last-child { border-bottom: none; padding-bottom: 0; }
+.brief-h {
+  margin: 0 0 7px; font-size: 16.5px; line-height: 1.4;
+  color: var(--accent); font-weight: 700;
+}
+.brief-h::before { content: "■ "; opacity: .55; }
+.brief-p { margin: 0 0 6px; font-size: 15px; line-height: 1.75; }
+.brief-p:last-child { margin-bottom: 0; }
+.brief-note { color: var(--muted); font-size: 12px; margin: 14px 0 0; max-width: 760px; }
+
 /* ---------- 分类详情页 ---------- */
 .summary {
   background: var(--card); border: 1px solid var(--line);

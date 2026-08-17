@@ -105,16 +105,30 @@ JUNK_TITLE_PATTERNS = [
     r"^AP News Search",
     r"^World News: Top & Breaking",
     r"^Reuters\s*[-–—]\s*Reuters$",
+    # 共同社英文站会推自动生成的地震速报占位条，以及只剩「- 媒体名」的空标题条
+    r"^Earthquake alert \(automated\)",
+    r"^\s*[-–—]\s*Japan Wire by Kyodo News\s*$",
+    # NHK WORLD 把日语教学栏目也放进新闻流
+    r"\bEasy Japanese \(Grammar Lessons\)",
 ]
 # 逐条单独编译（而不是合并成一个大正则）：这样命中时能说出**是哪一条**规则拦的，
 # 复查误杀时可以直接定位到要改的那一行。十几条正则的开销可以忽略。
 _JUNK_RES = [(p, re.compile(p)) for p in JUNK_TITLE_PATTERNS]
 
-# AP 的地区/球队/记者标签页（Wildfires、New York Yankees、Benjamin Netanyahu…）：
-# 去掉「- AP News」后只剩一个极短的名词短语。只对 AP 后缀生效——CNN 的短标题里
-# 有真新闻，例如 "Library devastated by flood - CNN"，一视同仁就会误杀。
-_AP_TAG_SUFFIX = re.compile(r"\s[-–—|]\s*(AP News|apnews\.com)\s*$", re.I)
-AP_TAG_RULE = "<AP 短标签页：去掉「- AP News」后 ≤4 词且无标点>"
+# 媒体自己的栏目页 / 标签页：去掉「- 媒体名」后只剩一个极短的名词短语
+# （AP 的 Wildfires、New York Yankees；Politico 的 Media、Foreign Policy、White House）。
+#
+# 只对列在这里的媒体生效，且**词数阈值一家一定**：这个阈值不是拍脑袋的，
+# 是把该源已抓到的全部标题排序后，取「最长的栏目页」与「最短的真新闻」之间的空档。
+# 不能一视同仁——CNN 的短标题里有真新闻，例如 "Library devastated by flood - CNN"。
+_TAG_SUFFIXES = [
+    (re.compile(r"\s[-–—|]\s*(AP News|apnews\.com)\s*$", re.I), 4,
+     "<AP 短标签页：去掉「- AP News」后 ≤4 词且无标点>"),
+    # Politico 栏目页最长 2 词（Foreign Policy / Health Care / White House），
+    # 最短的真新闻是 3 词（Washington’s Mali gamble），中间没有重叠。
+    (re.compile(r"\s[-–—|]\s*Politico\s*$", re.I), 2,
+     "<Politico 短栏目页：去掉「- Politico」后 ≤2 词且无标点>"),
+]
 
 
 def junk_reason(title: str) -> str | None:
@@ -127,11 +141,13 @@ def junk_reason(title: str) -> str | None:
     for pattern, rx in _JUNK_RES:
         if rx.search(t):
             return pattern
-    stem = _AP_TAG_SUFFIX.sub("", t).strip()
-    if stem != t and stem.isascii():
-        # 真新闻标题几乎不会短到 4 个词以内，且多半带标点
-        if len(stem.split()) <= 4 and not re.search(r"[.!?:;,]", stem):
-            return AP_TAG_RULE
+    for suffix, max_words, rule in _TAG_SUFFIXES:
+        stem = suffix.sub("", t).strip()
+        if stem == t or not stem.isascii():
+            continue
+        # 真新闻标题几乎不会短到这个程度，且多半带标点
+        if len(stem.split()) <= max_words and not re.search(r"[.!?:;,]", stem):
+            return rule
     return None
 
 
@@ -364,8 +380,53 @@ def show_dropped(out_path: str | None = None) -> None:
         print(text)
 
 
+def purge_junk(dry_run: bool = True) -> int:
+    """拿当前黑名单复查**已入库**的标题，把命中的清出去。
+
+    黑名单只在抓取时生效，所以每次新增规则，之前已经存进库的同类页面还留在里面，
+    照样会出现在页面上、进入简报素材。改完 JUNK_TITLE_PATTERNS 就跑一次这个。
+    默认只报告不删，确认清单无误后再加 --purge-junk --yes。
+    """
+    with db.connect() as conn:
+        rows = conn.execute("SELECT id, source, source_name, title, url FROM articles").fetchall()
+    hits = [dict(r) | {"pattern": w} for r in rows if (w := junk_reason(r["title"]))]
+    if not hits:
+        print("已入库的标题里没有命中黑名单的，无需清理。")
+        return 0
+
+    by_rule: dict[str, list] = {}
+    for h in hits:
+        by_rule.setdefault(h["pattern"], []).append(h)
+    for rule, items in sorted(by_rule.items(), key=lambda x: len(x[1])):
+        print(f"【{rule}】{len(items)} 条")
+        for h in items[:8]:
+            print(f"    [{h['source_name']}] {h['title'][:74]}")
+        if len(items) > 8:
+            print(f"    …… 另有 {len(items) - 8} 条")
+
+    if dry_run:
+        print(f"\n共 {len(hits)} 条命中（仅预览，未删除）。确认后执行："
+              "\n  python -m newsagg.fetch --purge-junk --yes")
+        return 0
+
+    db.record_dropped(hits)          # 先留档，再删除：清理掉的同样可以事后复查
+    ids = [h["id"] for h in hits]
+    with db.connect() as conn:
+        for table, col in (("article_categories", "article_id"),
+                           ("event_articles", "article_id"),
+                           ("trivial_judged", "article_id")):
+            conn.execute(f"DELETE FROM {table} WHERE {col} IN "
+                         f"({','.join('?' * len(ids))})", ids)
+        conn.execute(f"DELETE FROM articles WHERE id IN ({','.join('?' * len(ids))})", ids)
+        conn.commit()
+    print(f"\n已清理 {len(hits)} 条，并留档到 dropped_titles（可用 --dropped 复查）。")
+    return len(hits)
+
+
 if __name__ == "__main__":
-    if "--dropped" in sys.argv:
+    if "--purge-junk" in sys.argv:
+        purge_junk(dry_run="--yes" not in sys.argv)
+    elif "--dropped" in sys.argv:
         i = sys.argv.index("--out") if "--out" in sys.argv else -1
         show_dropped(sys.argv[i + 1] if i >= 0 and i + 1 < len(sys.argv) else None)
     else:
