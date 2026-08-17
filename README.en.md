@@ -99,6 +99,30 @@ and model name are all it needs:
 > Model names change over time. If you get a "model not found" error, check the
 > provider's docs for the current name and edit that line.
 
+### Free quotas run out
+
+Free tiers have a **daily** token cap on top of the per-minute one — Groq's
+`gpt-oss-120b` allows roughly 200k tokens a day. That number is **not in the
+response headers**; it only shows up in the error once you hit it. So the program
+keeps a local per-day tally:
+
+```bash
+python -m newsagg.ai --quota
+```
+
+This prints your per-minute remaining tokens, request quota, and today's
+cumulative usage from this machine.
+
+When the daily budget is exhausted the program does **not** sit and wait — it says
+so explicitly ("used X of Y, back in N minutes"), skips that provider, and still
+renders whatever finished. That is deliberately different from per-minute rate
+limiting, where waiting a few seconds does help; waiting out a daily cap would
+just hang for half an hour.
+
+Rough cost per run: about 90k tokens when 200 new articles come in, about 30k when
+only a few dozen do. If you are short on quota, `--no-ai` refreshes just the
+headline lists, and `--manual` hands the AI work to a coding assistant instead.
+
 ---
 
 ## Run modes

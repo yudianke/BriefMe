@@ -227,6 +227,59 @@ def _call(client, p: Provider, role: str, system: str, user: str,
 _RL: dict[str, dict] = {}          # 模型 -> {"remaining": int, "reset": 时间戳}
 _LAST_USAGE: dict[str, int] = {}   # 模型 -> 上次实际用量，作为下次的预算估计
 
+# ---------------- 当日用量本地台账 ----------------
+# Groq 免费档每个模型每天有 token 上限（gpt-oss-120b 是 20 万），但这个数字
+# **不在响应头里**，只有耗尽时的 429 文案才会提到。也就是说跑之前无从判断
+# 今天还剩多少。既然每次调用都会返回 usage，就在本地按天累加，做个近似台账。
+# 只是近似：换机器、或在别处用同一个 key，这边都统计不到。
+_USAGE_LOG = Path(__file__).resolve().parent.parent / "data" / "usage.json"
+
+
+def _total_tokens(usage) -> int:
+    """从各家形状不同的 usage 对象里取总 token 数。
+
+    OpenAI 兼容接口给 total_tokens；Anthropic 给的是 input_tokens/output_tokens，
+    没有 total_tokens——只认前者的话，用 Claude 的人台账会永远是空的。
+    """
+    if usage is None:
+        return 0
+    tot = getattr(usage, "total_tokens", None)
+    if tot:
+        return int(tot)
+    a = getattr(usage, "input_tokens", 0) or 0
+    b = getattr(usage, "output_tokens", 0) or 0
+    return int(a) + int(b)
+
+
+def _record_usage(model: str, tokens: int) -> None:
+    if not tokens:
+        return
+    try:
+        import datetime
+        day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        data = {}
+        if _USAGE_LOG.exists():
+            data = json.loads(_USAGE_LOG.read_text(encoding="utf-8"))
+        today = data.setdefault(day, {})
+        today[model] = today.get(model, 0) + tokens
+        # 只留最近 7 天，避免无限增长
+        for old in sorted(data)[:-7]:
+            data.pop(old, None)
+        _USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _USAGE_LOG.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    except Exception:
+        pass                            # 台账失败绝不能影响正常调用
+
+
+def usage_today() -> dict[str, int]:
+    """今日（UTC）各模型的累计 token 用量。"""
+    try:
+        import datetime
+        day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        return json.loads(_USAGE_LOG.read_text(encoding="utf-8")).get(day, {})
+    except Exception:
+        return {}
+
 
 _DUR_UNITS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
 _DUR_RE = re.compile(r"([\d.]+)\s*(ms|s|m|h|d)", re.I)
@@ -280,9 +333,12 @@ def pace(model: str, verbose: bool = True) -> None:
     if have >= need:
         return
     wait = (need - have) / rate if rate else max(0.0, st["reset"] - time.time())
-    wait = min(wait + 0.3, 60)
     if wait <= 0:
+        # 没有 limit 也没有有效 reset（有些 provider 只回 remaining 一项）时算不出
+        # 该等多久，这时**一秒都不该等**——余量的事交给 429 重试兜底。
+        # 注意先判后加余量：反过来会让每次调用都白睡那点余量。
         return
+    wait = min(wait + 0.3, MAX_RL_WAIT)
     if verbose and wait >= 1.0:
         # 过去这里是静音的：跑得慢时看不出是在等配额，只能盯着总时长猜
         print(f"  [配额] {model} 余量 {int(have)}/{need}，等待 {wait:.1f}s")
@@ -294,21 +350,50 @@ def _is_rate_limit(e) -> bool:
     return getattr(e, "status_code", None) == 429 or "RateLimit" in type(e).__name__
 
 
+# 「当日额度耗尽」与「这一分钟发太快」是两回事，必须分开处理：
+# 前者要等到明天（Groq 免费档每模型每天 20 万 token），重试多少次都没用，
+# 干等只会让程序卡住半小时还什么都没做；后者等几秒就恢复。
+_DAILY_RE = re.compile(r"per day|\bTPD\b|\bRPD\b", re.I)
+_USAGE_RE = re.compile(r"Limit (\d+), Used (\d+)", re.I)
+
+
+def _is_daily_limit(e) -> bool:
+    return bool(_DAILY_RE.search(str(e)))
+
+
+def _daily_usage(e) -> str:
+    """从 429 文案里提取「已用/总额」，让用户看得见自己烧到哪了。"""
+    m = _USAGE_RE.search(str(e))
+    if not m:
+        return ""
+    limit, used = int(m.group(1)), int(m.group(2))
+    return f"（已用 {used:,}/{limit:,}，剩 {limit - used:,}）"
+
+
 def _retry_after(e, default: float = 20.0) -> float:
-    """从 429 里取建议等待秒数：优先 retry-after 头，其次消息里的 'try again in Xs'。"""
+    """从 429 里取建议等待秒数：优先 retry-after 头，其次消息里的 'try again in …'。
+
+    时长要整段解析，不能只认「秒」：日额度耗尽时 Groq 给的是
+    'try again in 14m16.656s'，若用 `([\\d.]+)s` 去匹配会直接落空，
+    结果就是明明知道 14 分钟后恢复，却报不出这个数。
+    """
     try:
         ra = e.response.headers.get("retry-after")
         if ra:
             return float(ra) + 1.0
     except Exception:
         pass
-    m = re.search(r"try again in ([\d.]+)s", str(e))
+    m = re.search(r"try again in ([\dhms.]+)", str(e))
     if m:
-        return float(m.group(1)) + 1.0
+        secs = _parse_reset(m.group(1))
+        if secs > 0:
+            return secs + 1.0
     return default
 
 
-MAX_RL_RETRIES = 6  # 单次调用遇限流最多等待重试次数
+MAX_RL_RETRIES = 6   # 单次调用遇「每分钟限流」最多等待重试次数
+MAX_RL_WAIT = 75.0   # 单次等待上限（秒）。每分钟配额最多 60 秒就回满，
+                     # 建议值若远大于此，说明撞的其实不是分钟级限额，别傻等。
 
 
 def model_for(p: Provider, role: str) -> str:
@@ -336,14 +421,26 @@ def complete(role: str, system: str, user: str, max_tokens: int = 1024,
                 pace(mdl)   # 余量不足时等到配额重置，够就立即发
                 text, usage = _call(client, p, role, system, user,
                                     max_tokens, temperature)
-                if usage is not None and getattr(usage, "total_tokens", None):
-                    _LAST_USAGE[mdl] = usage.total_tokens
+                tok = _total_tokens(usage)
+                if tok:
+                    _LAST_USAGE[mdl] = tok
+                    _record_usage(mdl, tok)
                 return Result(text=text, provider=name, model=mdl, usage=usage)
             except Exception as e:
-                # 限流：按建议等待后重试同一个 provider（不消耗 fallback）
+                # 当日额度耗尽：等下去也不会恢复，直接换 provider 或放弃，
+                # 让已完成的部分照常渲染，而不是把用户晾在那儿等半小时。
+                if _is_rate_limit(e) and _is_daily_limit(e):
+                    w = _retry_after(e, default=0.0)
+                    hint = f"，约 {w / 60:.0f} 分钟后恢复" if w else ""
+                    print(f"  [当日额度用尽] {name} 今日 token 配额已耗尽"
+                          f"{_daily_usage(e)}{hint}。")
+                    print(f"      本轮跳过该 provider；已完成的部分会照常渲染。")
+                    last = e
+                    break
+                # 每分钟限流：等几秒就恢复，按建议等待后重试同一个 provider
                 if _is_rate_limit(e) and attempt < MAX_RL_RETRIES - 1:
-                    w = _retry_after(e)
-                    print(f"  [限流] {name} 触发 TPM 上限，等待 {w:.0f}s 后重试 "
+                    w = min(_retry_after(e), MAX_RL_WAIT)
+                    print(f"  [限流] {name} 触发每分钟上限，等待 {w:.0f}s 后重试 "
                           f"({attempt + 1}/{MAX_RL_RETRIES})…")
                     time.sleep(w)
                     continue
@@ -373,6 +470,52 @@ def parse_json(text: str):
     return None
 
 
+def quota_report() -> None:
+    """查当前配额余量：python -m newsagg.ai --quota
+
+    发一次最小请求（几十 token），把 x-ratelimit-* 头打出来。
+    免费档除了每分钟 TPM，还有**每天** TPD（Groq 上 gpt-oss-120b 是 20 万），
+    日额度耗尽时只能等到次日，跑之前先看一眼能少走弯路。
+    """
+    provs = available_providers()
+    if not provs:
+        print("没有可用 provider（检查 .env）")
+        return
+    for name in provs:
+        p = PROVIDERS[name]
+        if p.sdk != "openai":
+            print(f"  {name}: 非 OpenAI 兼容接口，跳过")
+            continue
+        try:
+            raw = _client(p).chat.completions.with_raw_response.create(
+                model=model_for(p, "default"), max_tokens=1,
+                messages=[{"role": "user", "content": "."}],
+                extra_body=p.extra.get(model_for(p, "default")) or None)
+            h = raw.headers
+            print(f"  [{name}] {model_for(p, 'default')}")
+            print(f"    每分钟 token 余量 {h.get('x-ratelimit-remaining-tokens')}"
+                  f"/{h.get('x-ratelimit-limit-tokens')}"
+                  f"（{h.get('x-ratelimit-reset-tokens')} 后回满）")
+            print(f"    请求数余量     {h.get('x-ratelimit-remaining-requests')}"
+                  f"/{h.get('x-ratelimit-limit-requests')}"
+                  f"（{h.get('x-ratelimit-reset-requests')} 后重置）")
+        except Exception as e:
+            if _is_daily_limit(e):
+                w = _retry_after(e, default=0.0)
+                print(f"  [{name}] 当日额度已耗尽{_daily_usage(e)}"
+                      f"{f'，约 {w / 60:.0f} 分钟后恢复' if w else ''}")
+            else:
+                print(f"  [{name}] 查询失败：{type(e).__name__}: {str(e)[:100]}")
+
+    today = usage_today()
+    if today:
+        print("\n  本机今日累计用量（UTC 计日，仅统计本机调用）：")
+        for m, n in sorted(today.items(), key=lambda x: -x[1]):
+            print(f"    {m:<26} {n:>7,} tokens")
+        print("    注：每日上限不在响应头里，Groq 免费档 gpt-oss-120b 约 20 万/天，")
+        print("        耗尽时才会在报错里告知。此处为本机累计的近似值。")
+
+
 def smoke_test() -> None:
     """连通性自测：python -m newsagg.ai —— 用当前主用 provider 发一句最小请求。"""
     provs = available_providers()
@@ -395,4 +538,8 @@ def smoke_test() -> None:
 
 
 if __name__ == "__main__":
-    smoke_test()
+    import sys
+    if "--quota" in sys.argv:
+        quota_report()
+    else:
+        smoke_test()
