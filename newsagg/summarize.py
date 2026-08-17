@@ -5,7 +5,6 @@
 """
 from __future__ import annotations
 
-import time
 
 from . import db
 from .ai import complete
@@ -62,7 +61,6 @@ def summarize(hours: int = WINDOW_HOURS, force: bool = False) -> int:
                 )
             made += 1
             print(f"  汇总 {REGIONS[region]}·{cat}（{len(arts)} 篇）")
-            time.sleep(1)
     print(f"汇总完成，本次生成 {made} 段。")
     return made
 

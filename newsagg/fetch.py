@@ -5,6 +5,7 @@ import calendar
 import re
 import sys
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .models import Article
 
 CONFIG = Path(__file__).resolve().parent.parent / "config" / "sources.yaml"
 UA = "Mozilla/5.0 (personal-news-aggregator; RSS reader)"
+FETCH_WORKERS = 6   # 并发抓取的源数；纯网络等待，6 足以把 20 个源重叠掉又不显粗暴
 
 
 def load_sources() -> list[dict]:
@@ -31,11 +33,30 @@ def build_gnews_url(query: str, locale: dict) -> str:
             f"&hl={locale['hl']}&gl={locale['gl']}&ceid={locale['ceid']}")
 
 
-def clean_excerpt(raw: str, limit: int = 200) -> str:
+def _norm(s: str) -> str:
+    """归一化：去掉空白、连接符与常见的「- 媒体名」尾巴，只留可比对的实体内容。"""
+    s = re.sub(r"[\s\-–—|｜·]+", "", s or "")
+    return re.sub(r"(新华网|央视网|第一财经|财新|参考消息|南方周末|联合早报|"
+                  r"Reuters|CNN|APNews|apnews\.com|BBC|TheGuardian)$", "", s, flags=re.I)
+
+
+def clean_excerpt(raw: str, limit: int = 200, title: str = "") -> str:
+    """清洗摘要；**摘要若只是标题的重复就丢弃**。
+
+    Google News 的 summary 字段常常原样返回标题（实测约占 58%），
+    留着它等于把同一句话发给 AI 两遍——分类和汇总都要各付一次 token。
+
+    判定刻意保守：只有当摘要归一化后是标题归一化的前缀（即完全不含新增信息）
+    才丢。摘要只要多出一点内容就整段保留，宁可多发也不误删。
+    """
     if not raw:
         return ""
-    text = BeautifulSoup(raw, "html.parser").get_text(" ", strip=True)
-    return text[:limit].strip()
+    text = BeautifulSoup(raw, "html.parser").get_text(" ", strip=True)[:limit].strip()
+    if title:
+        nt, ne = _norm(title), _norm(text)
+        if ne and nt.startswith(ne):
+            return ""
+    return text
 
 
 def entry_datetime(entry) -> datetime | None:
@@ -186,7 +207,7 @@ def fetch_source(src: dict, hours: int = 24, stats: dict | None = None) -> list[
                 url=link,
                 lang=src["lang"],
                 published_at=dt.isoformat(),
-                excerpt=clean_excerpt(e.get("summary", "")),
+                excerpt=clean_excerpt(e.get("summary", ""), title=title),
                 fetched_at=now_iso,
             ))
     return drop_junk(out)
@@ -212,8 +233,6 @@ def probe_overseas(timeout: float = 10.0) -> bool:
     超时给到 10 秒是留给高峰期较慢的代理；真的连不上时才会等满。
     误判仍有可能（例如代理极慢），此时用 run.py --all 强制抓取。
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     import httpx
 
     def hit(url: str) -> bool:
@@ -265,20 +284,38 @@ def run(hours: int = 24, cn_only: bool = False, skip_probe: bool = False) -> Non
 
     total_new, total_junk = 0, 0
     print(f"抓取窗口：过去 {hours} 小时\n" + "-" * 48)
-    for src in sources:
-        try:
-            stats: dict = {}
-            articles = fetch_source(src, hours, stats)
-            junk = stats.get("junk", 0)
-            total_junk += junk
-            new = db.upsert_articles(articles)
-            total_new += new
-            status = "OK " if articles else "空  "
-            print(f"[{status}] {src['id']:<9} {src['name']:<8} "
-                  f"取到 {len(articles):>3} 条，新增 {new:>3}"
-                  f"{f'，滤除 {junk:>2} 条非新闻页' if junk else ''}  ({src['method']})")
-        except Exception as ex:  # 单源失败不阻塞整体
-            print(f"[ERR] {src['id']:<9} {src['name']:<8} 失败: {ex}")
+
+    # 并发抓取：这一步是纯网络等待，各源互不相关，串行纯属浪费。
+    # 只并发「取」，写库仍在主线程按源顺序进行——SQLite 多写容易撞锁，
+    # 而且顺序输出才能让日志保持和 sources.yaml 一致、便于对照。
+    # 并发度取 6：足以把 20 个源的等待重叠掉，又不至于对 Google News 造成突发压力。
+    def grab(src: dict):
+        stats: dict = {}
+        return src, fetch_source(src, hours, stats), stats, None
+
+    results: dict[str, tuple] = {}
+    with ThreadPoolExecutor(max_workers=min(FETCH_WORKERS, len(sources) or 1)) as ex:
+        futs = {ex.submit(grab, s): s for s in sources}
+        for f in as_completed(futs):
+            s = futs[f]
+            try:
+                results[s["id"]] = f.result()
+            except Exception as exc:            # 单源失败不阻塞整体
+                results[s["id"]] = (s, [], {}, exc)
+
+    for src in sources:                          # 按配置顺序输出与写库
+        _, articles, stats, err = results.get(src["id"], (src, [], {}, None))
+        if err is not None:
+            print(f"[ERR] {src['id']:<9} {src['name']:<8} 失败: {err}")
+            continue
+        junk = stats.get("junk", 0)
+        total_junk += junk
+        new = db.upsert_articles(articles)
+        total_new += new
+        status = "OK " if articles else "空  "
+        print(f"[{status}] {src['id']:<9} {src['name']:<8} "
+              f"取到 {len(articles):>3} 条，新增 {new:>3}"
+              f"{f'，滤除 {junk:>2} 条非新闻页' if junk else ''}  ({src['method']})")
     print("-" * 48)
     print(f"总新增 {total_new} 条 -> {db.DB_PATH}")
     if total_junk:

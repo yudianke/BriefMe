@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import time
 
 from . import db, extract
 from .ai import complete, parse_json
@@ -84,7 +83,6 @@ def classify(hours: int = 24) -> int:
             else:
                 total += _save(row["id"], cats[:2])
         print(f"  [一级] 批 {i//BATCH + 1}: {len(batch)} 篇，累计待补正文 {len(uncertain)}")
-        time.sleep(1)
 
     # ---- 第二级：补正文开头再判 ----
     if uncertain:
@@ -110,7 +108,6 @@ def classify(hours: int = 24) -> int:
             cats = [c for c in ((got.get(short) or {}).get("categories") or []) if c in CATEGORIES]
             total += _save(row["id"], cats[:2] or [FALLBACK_CATEGORY])
         print(f"  [二级] 批 {i//BATCH2 + 1}: {len(batch)} 篇")
-        time.sleep(1)
 
     print(f"分类完成，共写入 {total} 条(篇×类)标签。")
     return total

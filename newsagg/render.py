@@ -37,11 +37,17 @@ def region_filename(region: str) -> str:
 
 
 def _summary(region: str, category: str) -> tuple[str, str]:
-    """返回 (中文纪要, 英文纪要)。没跑过 --en 时英文回退成中文，页面不会空着。"""
+    """返回 (中文纪要, 英文纪要)。没跑过 --en 时英文回退成中文，页面不会空着。
+
+    取最近一次而非「今天的」：纪要按 UTC 日历日存，页面窗口却是滚动 24 小时，
+    按日期查会让 UTC 零点一过页面上的纪要集体消失，直到重跑为止。
+    是否需要重写由 db.summaries_todo() 按素材变化判断，与日历无关。
+    """
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT ai_text, ai_text_en FROM summaries WHERE region=? AND category=? AND date=?",
-            (region, category, db.today_key()),
+            """SELECT ai_text, ai_text_en FROM summaries
+               WHERE region=? AND category=? ORDER BY generated_at DESC LIMIT 1""",
+            (region, category),
         ).fetchone()
     if not row:
         return "", ""

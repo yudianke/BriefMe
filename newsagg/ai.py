@@ -30,7 +30,10 @@ class Provider:
     models: dict
     auth: str = "bearer"    # "bearer"(Authorization) | "portkey"(x-portkey-api-key)
     direct: bool = False    # True=绕过系统代理直连（用于校内网关）；False=尊重 HTTPS_PROXY
-    extra: dict = field(default_factory=dict)  # 透传给 create() 的 extra_body（如 reasoning_effort）
+    # 透传给 create() 的 extra_body，**按模型名分别配置**。
+    # 必须按模型分：同一家的不同模型对参数的支持不一样，比如 Groq 上
+    # gpt-oss 接受 reasoning_effort，llama-3.3-70b 收到它会直接返回 400。
+    extra: dict = field(default_factory=dict)   # 模型名 -> extra_body
     sdk: str = "openai"     # "openai"=OpenAI 兼容接口 | "anthropic"=Anthropic 原生接口
     cn: bool = False        # True=中国大陆可直连，无需代理
 
@@ -44,10 +47,16 @@ PROVIDERS: dict[str, Provider] = {
         name="groq",
         base_url="https://api.groq.com/openai/v1",
         api_key_env="GROQ_API_KEY",
+        # 全部任务统一用 gpt-oss-120b：口径一致、译文风格统一。
+        # 曾试过把 translate/classify 分给 llama-3.3-70b（TPM 12K 更宽、更省
+        # token），但译文风格不合用，遂放弃。若日后想再分，只需在这里按 role
+        # 加键，并在下面 extra 里为新模型配好它自己支持的参数。
         models={"default": "openai/gpt-oss-120b"},
         auth="bearer",
         direct=False,                       # 公网 API，尊重系统代理
-        extra={"reasoning_effort": "low"},  # gpt-oss 是推理模型，低档更快省
+        # extra 按模型名配：同一 provider 下不同模型支持的参数不同，
+        # 例如 reasoning_effort 只有 gpt-oss 接受，llama 收到会直接 400。
+        extra={"openai/gpt-oss-120b": {"reasoning_effort": "low"}},
     ),
     "portkey": Provider(
         name="portkey",
@@ -196,12 +205,89 @@ def _call(client, p: Provider, role: str, system: str, user: str,
             system=system, messages=[{"role": "user", "content": user}])
         text = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
         return text, getattr(r, "usage", None)
-    r = client.chat.completions.create(
+    # extra_body 按模型取：同一 provider 下不同模型支持的参数不同（见 Provider.extra）
+    raw = client.chat.completions.with_raw_response.create(
         model=model, max_tokens=max_tokens, temperature=temperature,
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": user}],
-        extra_body=p.extra or None)
+        extra_body=p.extra.get(model) or None)
+    _note_headers(model, raw.headers)   # 记录该模型余量，供下次调用前动态节流
+    r = raw.parse()
     return (r.choices[0].message.content or ""), getattr(r, "usage", None)
+
+
+# ---------------- 动态节流 ----------------
+# 过去用固定 time.sleep(1)：有余量时白等，没余量时又不够，只能靠 429 兜底。
+# 改为读 OpenAI 兼容接口通用的 x-ratelimit-* 响应头：只有在本分钟剩余 token
+# 确实不够下一次调用时才等，且只等到配额重置那一刻。拿不到头就不等（退化成原来
+# 的行为 + 429 重试），不会因为某个 provider 不返回这些头而卡住。
+# 按模型记账：不同模型的配额上限与余量是分别返回的（Groq 上 gpt-oss 是 8K TPM、
+# llama-3.3-70b 是 12K），混用时若共用一份状态，阶段切换处就会拿上一个模型的
+# 余量去判断下一个模型该不该等，白等或漏等。
+_RL: dict[str, dict] = {}          # 模型 -> {"remaining": int, "reset": 时间戳}
+_LAST_USAGE: dict[str, int] = {}   # 模型 -> 上次实际用量，作为下次的预算估计
+
+
+_DUR_UNITS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
+_DUR_RE = re.compile(r"([\d.]+)\s*(ms|s|m|h|d)", re.I)
+
+
+def _parse_reset(v: str | None) -> float:
+    """把 '690ms' / '7.66s' / '7m12s' / '1h2m' 这类时长解析成秒。
+
+    注意 ms 必须先于 m 匹配：Groq 的 TPM 重置常常是 '690ms' 这种亚秒值，
+    若按单字符扫描会把它读成 690 分钟，从而把节流变成漫长的空等。
+    """
+    if not v:
+        return 0.0
+    total = 0.0
+    for num, unit in _DUR_RE.findall(str(v)):
+        total += float(num) * _DUR_UNITS[unit.lower()]
+    return total
+
+
+def _note_headers(model: str, h) -> None:
+    try:
+        rem = h.get("x-ratelimit-remaining-tokens")
+        if rem is None:
+            return
+        limit = h.get("x-ratelimit-limit-tokens")
+        _RL[model] = {
+            "remaining": int(rem),
+            "limit": int(limit) if limit else None,
+            "reset": time.time() + _parse_reset(h.get("x-ratelimit-reset-tokens")),
+            "at": time.time(),
+        }
+    except Exception:
+        pass                            # 头缺失或格式意外：当作没有余量信息
+
+
+def pace(model: str, verbose: bool = True) -> None:
+    """调用前按该模型的剩余配额等待。余量够就立即返回，不浪费时间。
+
+    只等「攒够这次要用的量」，而不是等配额回满。TPM 是持续回填的令牌桶：
+    reset 头给的是回满所需时间，若照它睡，缺 1000 token 也会按缺满桶来等，
+    实测能白等好几倍。按 limit/60 的回填速率折算所需秒数才是对的。
+    """
+    st = _RL.get(model)
+    if not st:
+        return                                   # 还没见过这个模型，或没有余量头
+    need = int(_LAST_USAGE.get(model, 1200) * 1.15)   # 留 15% 余地，避免刚好卡线
+    # 桶自上次响应以来已经回填了一部分，先把这部分算进来
+    limit = st["limit"]
+    rate = (limit / 60.0) if limit else 0.0      # token/秒
+    have = st["remaining"] + rate * (time.time() - st["at"])
+    if have >= need:
+        return
+    wait = (need - have) / rate if rate else max(0.0, st["reset"] - time.time())
+    wait = min(wait + 0.3, 60)
+    if wait <= 0:
+        return
+    if verbose and wait >= 1.0:
+        # 过去这里是静音的：跑得慢时看不出是在等配额，只能盯着总时长猜
+        print(f"  [配额] {model} 余量 {int(have)}/{need}，等待 {wait:.1f}s")
+    time.sleep(wait)
+    _RL.pop(model, None)                         # 等过就作废，等下次响应头刷新
 
 
 def _is_rate_limit(e) -> bool:
@@ -246,10 +332,13 @@ def complete(role: str, system: str, user: str, max_tokens: int = 1024,
         client = _client(p)
         for attempt in range(MAX_RL_RETRIES):
             try:
+                mdl = model_for(p, role)
+                pace(mdl)   # 余量不足时等到配额重置，够就立即发
                 text, usage = _call(client, p, role, system, user,
                                     max_tokens, temperature)
-                return Result(text=text, provider=name,
-                              model=model_for(p, role), usage=usage)
+                if usage is not None and getattr(usage, "total_tokens", None):
+                    _LAST_USAGE[mdl] = usage.total_tokens
+                return Result(text=text, provider=name, model=mdl, usage=usage)
             except Exception as e:
                 # 限流：按建议等待后重试同一个 provider（不消耗 fallback）
                 if _is_rate_limit(e) and attempt < MAX_RL_RETRIES - 1:

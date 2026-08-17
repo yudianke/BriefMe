@@ -16,7 +16,6 @@
 """
 from __future__ import annotations
 
-import time
 
 from . import db
 from .ai import complete, parse_json
@@ -97,7 +96,6 @@ def titles(hours: int = WINDOW_HOURS) -> int:
                 db.set_title_en(full, en)
                 done += 1
         print(f"  英文译题批 {i // TITLE_BATCH + 1}: {len(batch)} 条")
-        time.sleep(1)
     print(f"  英文译题完成，共 {done} 条。")
     return done
 
@@ -129,7 +127,6 @@ def summaries() -> int:
                 db.set_summary_en(row["region"], row["category"], en)
                 done += 1
         print(f"  英文纪要批 {n}: {len(batch)} 段")
-        time.sleep(1)
     print(f"  英文纪要完成，共 {done} 段。")
     return done
 
@@ -162,7 +159,6 @@ def events() -> int:
                 db.set_event_en(row["id"], title_en, (item.get("summary") or "").strip())
                 done += 1
         print(f"  英文 Top5 批 {n}: {len(batch)} 条")
-        time.sleep(1)
     print(f"  英文 Top5 完成，共 {done} 条。")
     return done
 

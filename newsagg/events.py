@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import hashlib
-import time
 
 from . import db
 from .ai import complete, parse_json
@@ -14,6 +13,8 @@ from .models import REGIONS, WINDOW_HOURS
 
 CANDIDATES = 90   # 送给模型的候选文章数（窗口内最新的）
 TOP_N = 5
+MAX_TOK = 1600        # 常规输出预算；Groq 按 max_tokens 预扣 TPM，不能随意调大
+MAX_TOK_RETRY = 2600  # 仅在解析失败时启用：宁可这一次多占些配额，也别丢掉整个 Top5
 DIVERSITY_W = 1.5  # 排序时每多一家不同媒体，等效前移的名次数（越大越看重来源多样性）
 
 _SYSTEM = (
@@ -59,22 +60,46 @@ def build(region: str, hours: int = WINDOW_HOURS) -> int:
     user = (f"以下是过去 {hours} 小时 {REGIONS[region]} 的报道"
             f"（短ID<tab>来源<tab>标题）：\n" + "\n".join(lines) +
             f"\n\n请选出最重要的 {TOP_N} 个事件。")
-    try:
-        text = complete("events", _SYSTEM, user, max_tokens=1600, temperature=0.2).text
-    except Exception as e:
-        print(f"  [Top5 {REGIONS[region]} 失败] {type(e).__name__}: {e}")
+    # 两段式预算：常规用 MAX_TOK，解析失败才用 MAX_TOK_RETRY 重来一次。
+    # 不能一开始就给大预算——Groq 按 max_tokens 预扣 TPM（实测 max_tokens=4000
+    # 会让 8000 的余量直接掉到 3900），常规调用给大了等于自找限流。
+    # 国际区的候选带中文译题，输入约是国内的两倍，输出也更长：实测 completion
+    # 常年在 1278/1600 一线，推理稍多就把 JSON 截断在半路，于是 Top5 整个消失。
+    data, text = None, ""
+    for budget in (MAX_TOK, MAX_TOK_RETRY):
+        try:
+            text = complete("events", _SYSTEM, user,
+                            max_tokens=budget, temperature=0.2).text
+        except Exception as e:
+            print(f"  [Top5 {REGIONS[region]} 失败] {type(e).__name__}: {e}")
+            return 0
+        data = parse_json(text)
+        if data and data.get("events"):
+            break
+        if budget != MAX_TOK_RETRY:
+            print(f"  [Top5 {REGIONS[region]}] 输出不完整（{len(text)} 字符），"
+                  f"用 {MAX_TOK_RETRY} token 预算重试…")
+
+    if not data or not data.get("events"):
+        # 别静默返回 0：过去这种情况只会打印「Top0 事件已生成」，
+        # 看不出是模型没返回、JSON 坏了、还是 ID 全对不上。
+        print(f"  [Top5 {REGIONS[region]} 无结果] "
+              f"{'JSON 解析失败' if data is None else 'events 字段为空'}"
+              f"，模型输出 {len(text)} 字符：{text[:160]!r}")
         return 0
 
-    data = parse_json(text) or {}
     src_of = {r["id"]: r["source_name"] for r in rows}
     events = []
     used: set[str] = set()
+    dropped = {"无标题": 0, "ID对不上": 0}
     for model_rank, e in enumerate(data.get("events", [])[:TOP_N]):
         title = (e.get("title") or "").strip()
         summary = (e.get("summary") or "").strip()
-        ids = [id_map[str(s)] for s in (e.get("ids") or []) if str(s) in id_map]
+        raw_ids = e.get("ids") or []
+        ids = [id_map[str(s)] for s in raw_ids if str(s) in id_map]
         ids = [i for i in ids if i not in used]      # 防止同一文章跨事件重复
         if not title or not ids:
+            dropped["无标题" if not title else "ID对不上"] += 1
             continue
         used.update(ids)
         eid = hashlib.sha1(f"{region}|{db.today_key()}|{title}".encode()).hexdigest()[:16]
@@ -92,9 +117,15 @@ def build(region: str, hours: int = WINDOW_HOURS) -> int:
 
     if events:
         db.save_events(region, events)
-    detail = "，".join(f"{e['n_sources']}家" for e in events)
-    print(f"  {REGIONS[region]} Top{len(events)} 事件已生成"
-          f"（覆盖 {sum(len(e['article_ids']) for e in events)} 篇报道；来源家数：{detail}）")
+        detail = "，".join(f"{e['n_sources']}家" for e in events)
+        print(f"  {REGIONS[region]} Top{len(events)} 事件已生成"
+              f"（覆盖 {sum(len(e['article_ids']) for e in events)} 篇报道；来源家数：{detail}）")
+    else:
+        # 模型给了 events 但一条都没留下——说明它编了不存在的短ID，或全无标题。
+        # 旧库里上一次的结果保持不动，页面不会因此变空。
+        why = "、".join(f"{k} {v} 条" for k, v in dropped.items() if v)
+        print(f"  [Top5 {REGIONS[region]} 无有效事件] 模型返回 {len(data.get('events', []))} 条，"
+              f"全部被丢弃（{why or '原因不明'}）。保留上一次的结果。")
     return len(events)
 
 
@@ -102,7 +133,6 @@ def build_all(hours: int = WINDOW_HOURS) -> int:
     n = 0
     for region in REGIONS:
         n += build(region, hours)
-        time.sleep(1)
     return n
 
 

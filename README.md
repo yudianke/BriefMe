@@ -84,6 +84,19 @@ OpenAI 兼容接口，填上地址、环境变量名和模型名就行：
 
 > 各家的模型名会变，如果报「模型不存在」，去对方文档查一下最新名字改掉即可。
 
+**同一家可以按任务分配不同模型。** `models` 的键就是任务名（`translate` /
+`classify` / `summarize` / `events`），缺哪个就回退到 `default`，所以只写
+`default` 也能跑——内置的 Groq 就只写了 `default`，全部任务统一用一个模型，
+译文风格才一致。想给某个任务换更快或更便宜的模型时，加一个键即可：
+
+```python
+models={"default": "openai/gpt-oss-120b", "translate": "llama-3.3-70b-versatile"},
+# 注意 extra 是按模型名配的：reasoning_effort 只有 gpt-oss 接受，llama 收到会 400
+extra={"openai/gpt-oss-120b": {"reasoning_effort": "low"}},
+```
+
+**无论怎么配，你都只需要在 `.env` 填一个 key。**
+
 ---
 
 ## 运行模式

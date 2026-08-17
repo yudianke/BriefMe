@@ -5,7 +5,6 @@
 """
 from __future__ import annotations
 
-import time
 
 from . import db
 from .ai import complete, parse_json
@@ -44,7 +43,6 @@ def translate(hours: int = 24) -> int:
                 db.set_title_zh(full, zh)
                 done += 1
         print(f"  翻译批 {i//BATCH + 1}: {len(batch)} 条")
-        time.sleep(1)
     print(f"翻译完成，共 {done} 条中文译题。")
     return done
 

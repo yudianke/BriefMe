@@ -17,7 +17,10 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "news.db"
 
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    # timeout：抓取阶段是多线程并发的，各线程会各自写 dropped_titles。
+    # SQLite 同一时刻只允许一个写者，撞上时默认立刻抛 "database is locked"；
+    # 给 10 秒等待窗口即可，这些写入都极小，实际几乎不会等到。
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -116,35 +119,56 @@ def category_counts(region: str, hours: int = WINDOW_HOURS) -> dict[str, int]:
     return {r["cat"]: r["n"] for r in rows}
 
 
+RESUMMARIZE_RATIO = 0.05   # 新增文章占比低于此值就不重算纪要
+
+
 def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
     """当天需要生成或**重写**纪要的 (region, category)。
 
-    两种情况都要写：
+    两种情况要写：
       1. 今天还没写过；
-      2. 写过，但之后又抓到了属于该分类的文章。
+      2. 写过，但之后新抓到的文章已占该分类的 RESUMMARIZE_RATIO 以上。
 
     第 2 条是必要的：纪要按日期缓存，而文章窗口是滚动 24 小时，两者口径不同。
     同一天内文章可以整批换掉——早上的稿子滚出窗口、新稿子进来——若只看
     「今天写过没有」，纪要就会一直停在当天第一次运行时的素材上。
     用 fetched_at 而不是 published_at 比较：判断依据是「这篇有没有被那次汇总
     看到过」，取决于何时入库，而不是媒体何时发稿。
+
+    但也不能一有新稿就重写：汇总是整条流水线里最贵的一步，一天里多跑几次
+    会反复烧额度，而多出三五篇通常改变不了纪要的内容。因此加一个比例门槛，
+    只有素材确实换掉一部分才值得重写。
     """
+    cutoff = window_cutoff(hours)
     with connect() as conn:
-        newest = conn.execute(
-            """SELECT a.region, c.category, MAX(a.fetched_at) AS newest
-               FROM articles a JOIN article_categories c ON c.article_id = a.id
-               WHERE a.published_at >= ?
-               GROUP BY a.region, c.category""",
-            (window_cutoff(hours),),
-        ).fetchall()
+        # 取每个分类**最近一次**纪要，而不是「今天的」。
+        # 纪要的 date 是 UTC 日历日，内容窗口却是滚动 24 小时：若按日期查，
+        # UTC 零点一过所有纪要就集体「消失」，阈值失去意义、当天第一次运行必然
+        # 全量重算。对 UTC+8 用户那是每天早上 8 点。改看 generated_at 之后，
+        # 是否重写只取决于素材换了多少，与日历翻页无关。
         done = {(r["region"], r["category"]): r["generated_at"] for r in conn.execute(
-            "SELECT region, category, generated_at FROM summaries WHERE date=?", (today_key(),))}
-    todo = []
-    for r in newest:
+            """SELECT region, category, MAX(generated_at) AS generated_at
+               FROM summaries GROUP BY region, category""")}
+        rows = conn.execute(
+            """SELECT a.region, c.category, a.fetched_at
+               FROM articles a JOIN article_categories c ON c.article_id = a.id
+               WHERE a.published_at >= ?""",
+            (cutoff,),
+        ).fetchall()
+    total: dict[tuple[str, str], int] = {}
+    fresh: dict[tuple[str, str], int] = {}
+    for r in rows:
         key = (r["region"], r["category"])
+        total[key] = total.get(key, 0) + 1
         gen = done.get(key)
-        if gen is None or (r["newest"] or "") > gen:
-            todo.append(key)
+        if gen is not None and (r["fetched_at"] or "") > gen:
+            fresh[key] = fresh.get(key, 0) + 1
+    todo = []
+    for key, n in total.items():
+        if key not in done:
+            todo.append(key)                                   # 没写过
+        elif fresh.get(key, 0) >= max(1, n * RESUMMARIZE_RATIO):
+            todo.append(key)                                   # 素材换掉够多
     return todo
 
 
