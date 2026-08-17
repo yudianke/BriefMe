@@ -27,7 +27,6 @@ STEPS = [
     ("AI 分类", "newsagg.classify", "classify"),
     ("Top5 事件", "newsagg.events", "build_all"),
     ("分类事件纪要", "newsagg.summarize", "summarize"),
-    ("要闻简报", "newsagg.briefing", "build"),
 ]
 
 

@@ -233,16 +233,6 @@ def render(hours: int = WINDOW_HOURS) -> None:
                 encoding="utf-8")
             n_cat_pages += 1
 
-    # ---------- 要闻简报 ----------
-    b = db.latest_briefing()
-    (OUT / "briefing.html").write_text(
-        env.get_template("briefing.html").render(
-            briefing=(b["ai_text"] if b else ""),
-            # 没跑过 --en 时英文回退中文，页面不会空着
-            briefing_en=((b["ai_text_en"] or b["ai_text"]) if b else ""),
-            generated_utc=generated_utc),
-        encoding="utf-8")
-
     for asset in ("style.css", "i18n.js", "localtime.js", "srcfilter.js"):
         src = TEMPLATES / asset
         if src.exists():

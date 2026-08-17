@@ -53,12 +53,11 @@
 var e=document.documentElement;e.setAttribute('data-lang','en');e.lang='en';}}catch(e){}</script>
 {% endmacro %}
 
-{# 主导航。抽成宏是因为标签已有四项，散落在各模板里改一处漏一处。
-   active 取 'home' | 'briefing' | 地区 id；extra 用于地区页额外塞「隐藏琐碎新闻」按钮。 #}
+{# 主导航。抽成宏是因为它出现在每一个页面模板里，散落着改一处漏一处。
+   active 取 'home' | 地区 id；extra 用于地区页额外塞「隐藏琐碎新闻」按钮。 #}
 {% macro mainnav(active, extra='') %}
 <nav class="mainnav">
   <a class="navlink{% if active == 'home' %} active{% endif %}" href="index.html">{{ t('首页', 'Home') }}</a>
-  <a class="navlink{% if active == 'briefing' %} active{% endif %}" href="briefing.html">{{ t('要闻简报', 'Briefing') }}</a>
   {% for r in region_nav %}
   <a class="navlink{% if active == r %} active{% endif %}"
      href="{{ region_file(r) }}">{{ t(region_nav[r], region_nav_en[r]) }}</a>
