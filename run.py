@@ -49,7 +49,7 @@ def main() -> None:
         for k, v in counts.items():
             print(f"  {k:<10} {v}")
         print(f"\n  待办已写入 {mn.MANUAL}")
-        print("  下一步：在 Claude Code 里说「处理 pachong/manual 的待办」")
+        print("  下一步：在 Claude Code 里说「处理manual/的待办」")
     elif no_ai:
         print("\n[跳过 AI] --no-ai")
     else:
