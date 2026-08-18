@@ -1,0 +1,76 @@
+{% import "_macros.html" as m %}<!doctype html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-en="{{ name_en }} · Journals · BriefMe">{{ name }} · 学术期刊</title>
+  {{ m.lang_boot() }}
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-region="journals">
+  <header class="site">
+    <nav class="crumb">
+      <a href="index.html">{{ m.t('首页', 'Home') }}</a> ›
+      <a href="journals.html">{{ m.t('学术期刊', 'Journals') }}</a> ›
+      <span>{{ m.t(name, name_en) }}</span>
+      <span class="nav-actions">{{ m.lang_btn() }}</span>
+    </nav>
+    <h1>{{ m.t(name, name_en) }}</h1>
+    <p class="meta">
+      {{ m.t('%d 篇 · %d 本期刊 · 更新于'|format(total, journals|length),
+             '%d papers · %d journals · updated'|format(total, journals|length)) }}
+      {{ m.time_tag(generated_utc) }}
+    </p>
+  </header>
+
+  <main class="jr-main">
+    {% for j in journals %}
+    <section class="jr-journal">
+      <h2 class="jr-jh">
+        {{ m.t(j.name, j.name_en) }}
+        <span class="count">{{ j.papers|length }}</span>
+        {# title 里只能放纯文本：m.t() 会输出 <span>，塞进属性会把属性撑破 #}
+        {% if j.mean_citedness %}
+        <span class="jr-cite" title="{{ cite_tip }}">{{
+          m.t('篇均被引', 'cited') }} {{ '%.1f'|format(j.mean_citedness) }}</span>
+        {% endif %}
+        {% if j.h_index %}<span class="jr-cite">h {{ j.h_index }}</span>{% endif %}
+        {# 高产刊会被单刊 200 篇的抓取上限截断，实际覆盖不足 90 天，这里如实标出 #}
+        <span class="jr-span">{{ j.lo[:10] }} ~ {{ j.hi[:10] }}</span>
+      </h2>
+      <ul class="paper-list">
+        {% for p in j.papers %}
+        <li class="paper">
+          <div class="t">
+            <a class="t-main" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.title }}</a>
+            {% if p.title_zh %}<span class="t-alt i18n-zh">{{ p.title_zh }}</span>{% endif %}
+          </div>
+          {% if p.authors %}<p class="paper-au">{{ p.authors }}</p>{% endif %}
+          {% if p.abstract %}<p class="paper-ab">{{ p.abstract }}</p>{% endif %}
+          <p class="paper-meta">
+            {{ m.time_tag(p.published_at) }} ·
+            <a class="jr-doi-link" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.doi }}</a>
+          </p>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% else %}
+    <p class="empty">{{ m.t('该学科暂无论文。', 'No papers in this discipline yet.') }}</p>
+    {% endfor %}
+
+    <p class="jr-note">{{ m.t(
+      '「篇均被引」为 OpenAlex 两年篇均被引，**不是** Clarivate 影响因子（JIF）—— 后者是专有数据。'
+      '每本刊标注的是其在本站的实际收录区间：高产刊按每刊最新 200 篇抓取，覆盖天数会短于窗口。'
+      '元数据来自 Crossref，摘要由出版商提供，部分期刊未提供。',
+      '“cited” is the OpenAlex 2-year mean citedness — **not** the Clarivate Journal Impact '
+      'Factor, which is proprietary. The range shown per journal is what this site actually '
+      'holds: high-volume journals are fetched at most 200 most-recent records each, so their '
+      'coverage is shorter than the window. Metadata comes from Crossref; abstracts are supplied '
+      'by publishers and some journals provide none.') }}</p>
+  </main>
+
+  <script src="i18n.js"></script>
+  <script src="localtime.js"></script>
+</body>
+</html>

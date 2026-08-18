@@ -229,3 +229,48 @@ ul.titles li:last-child { border-bottom: none; }
 .orig { font-size: 13px; text-decoration: none; }
 .empty { color: var(--muted); }
 code { background: var(--chip); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+
+/* ---------- 学术期刊 ---------- */
+.jr-main { max-width: 1400px; margin: 0 auto; padding: 0 22px 40px; }
+.jr-sec { font-size: 15px; margin: 26px 0 12px; color: var(--muted); font-weight: 600; }
+
+/* 两个精选并排；窄屏落回单列 */
+.pick-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .pick-cols { grid-template-columns: 1fr; } }
+.pick-col {
+  background: var(--card); border: 1px solid var(--line);
+  border-left: 4px solid var(--accent); border-radius: 10px; padding: 16px 20px 18px;
+}
+.pick-h { font-size: 15px; margin: 0 0 12px; color: var(--accent); font-weight: 700; }
+.pick-sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+.pick-list { margin: 0; padding-left: 20px; }
+.pick-item { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.pick-item:last-child { border-bottom: none; padding-bottom: 0; }
+.pick-reason { margin: 5px 0 4px; font-size: 13px; line-height: 1.65; }
+.pick-meta { margin: 0; font-size: 11.5px; color: var(--muted);
+             display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.jr-note { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
+
+/* 期刊徽章与指标 */
+.jr-badge { background: var(--chip, rgba(127,127,127,.14)); border-radius: 4px;
+            padding: 1px 6px; white-space: nowrap; }
+.jr-cite { color: var(--muted); font-size: 11.5px; white-space: nowrap;
+           border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.jr-span { color: var(--muted); font-size: 11.5px; font-weight: 400; }
+.jr-doi { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+          overflow-wrap: anywhere; }
+.jr-doi-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+               font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* 单学科页：按刊分组 */
+.jr-journal { margin: 0 0 26px; }
+.jr-jh { font-size: 15px; margin: 0 0 10px; padding-bottom: 7px;
+         border-bottom: 1px solid var(--line);
+         display: flex; flex-wrap: wrap; gap: 9px; align-items: baseline; }
+.paper-list { list-style: none; margin: 0; padding: 0; }
+.paper { padding: 11px 0; border-bottom: 1px solid var(--line); }
+.paper:last-child { border-bottom: none; }
+.paper-au { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.paper-ab { margin: 5px 0 0; font-size: 13px; line-height: 1.7; color: var(--fg2, inherit);
+            opacity: .88; }
+.paper-meta { margin: 5px 0 0; font-size: 11.5px; color: var(--muted); }

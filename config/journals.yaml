@@ -1,0 +1,176 @@
+# 学术期刊注册表。数据走 Crossref REST API（免费、无需 key、各出版商统一接口），
+# 因此不需要逐家爬站，也就不涉及各出版商的 robots.txt。
+#
+# issn 填哪一个很关键——同一本刊的印刷版与电子版 ISSN 在 Crossref 里是两条独立记录，
+# 挑错了会拿到停更多年的旧数据。下面每条都实测过，注释里写了为什么选这个。
+#
+# discipline: 学科分区名，页面按它分组；同一学科的刊会归到一页
+# sci: true  -> 进「SCI 五篇精选」候选池
+#      false -> 进「SSCI 五篇精选」候选池
+#
+# 加新刊：在 https://api.crossref.org/journals/{ISSN}/works?rows=1 试一下能不能拿到
+# 近期条目，然后在这里加一条即可，不用改任何代码。
+
+disciplines:
+  - id: natural
+    name: 自然科学
+    name_en: Natural Sciences
+  - id: ai
+    name: 人工智能
+    name_en: Artificial Intelligence
+  - id: robotics
+    name: 机器人
+    name_en: Robotics
+  - id: psychology
+    name: 心理学
+    name_en: Psychology
+  - id: sociology
+    name: 社会学与社会政策
+    name_en: Sociology & Social Policy
+  - id: politics
+    name: 政治学
+    name_en: Political Science
+  - id: economics
+    name: 经济学
+    name_en: Economics
+  - id: business
+    name: 商业与金融
+    name_en: Business & Finance
+
+journals:
+  # ---- 自然科学（综合）----
+  # 出稿量最大的两家：Nature 90 天约 1000 条、Science 约 530 条，
+  # 其中含大量更正、书评、每日简报，靠 journals.JUNK_PAPER_PATTERNS 过滤。
+  - id: nature
+    name: 自然
+    name_en: Nature
+    issn: "0028-0836"
+    discipline: natural
+    sci: true
+  - id: science
+    name: 科学
+    name_en: Science
+    issn: "0036-8075"
+    discipline: natural
+    sci: true
+
+  # ---- 人工智能 ----
+  - id: tpami
+    name: IEEE 模式分析与机器智能汇刊
+    name_en: IEEE TPAMI
+    issn: "0162-8828"
+    discipline: ai
+    sci: true
+  - id: tnnls
+    name: IEEE 神经网络与学习系统汇刊
+    name_en: IEEE TNNLS
+    issn: "2162-237X"
+    discipline: ai
+    sci: true
+
+  # ---- 机器人 ----
+  # 用印刷版 ISSN：实测 1552-3098 有 4156 条，e-ISSN 1941-0468 只有 3646 条。
+  # 注意 IEEE 提交的 published 只精确到年，靠 journals.resolve_date 用 created 兜底，
+  # 否则这本刊在 90 天窗口里会一篇都不剩。
+  - id: tro
+    name: IEEE 机器人汇刊
+    name_en: IEEE T-RO
+    issn: "1552-3098"
+    discipline: robotics
+    sci: true
+  # 再配两本日期精度完整的，避免整个机器人分区都依赖 created 兜底
+  - id: scirobotics
+    name: 科学·机器人
+    name_en: Science Robotics
+    issn: "2470-9476"
+    discipline: robotics
+    sci: true
+  - id: ijrr
+    name: 国际机器人研究杂志
+    name_en: Int. Journal of Robotics Research
+    issn: "0278-3649"
+    discipline: robotics
+    sci: true
+
+  # ---- 心理学 ----
+  - id: amp_psych
+    name: 美国心理学家
+    name_en: American Psychologist
+    issn: "0003-066X"
+    discipline: psychology
+    sci: false
+  - id: jap
+    name: 应用心理学杂志
+    name_en: Journal of Applied Psychology
+    issn: "0021-9010"
+    discipline: psychology
+    sci: false
+
+  # ---- 社会学与社会政策 ----
+  - id: demography
+    name: 人口学
+    name_en: Demography
+    issn: "0070-3370"
+    discipline: sociology
+    sci: false
+  - id: socialwork
+    name: 社会工作
+    name_en: Social Work
+    issn: "0037-8046"
+    discipline: sociology
+    sci: false
+  - id: jsp
+    name: 社会政策学刊
+    name_en: Journal of Social Policy
+    issn: "0047-2794"
+    discipline: sociology
+    sci: false
+
+  # ---- 政治学 ----
+  - id: jop
+    name: 政治学杂志
+    name_en: The Journal of Politics
+    issn: "0022-3816"
+    discipline: politics
+    sci: false
+  - id: apsr
+    name: 美国政治学评论
+    name_en: American Political Science Review
+    issn: "0003-0554"
+    discipline: politics
+    sci: false
+  # 必须用电子版 ISSN：印刷版 0043-8871 在 Crossref 里最新条目停在 2022-10
+  - id: worldpolitics
+    name: 世界政治
+    name_en: World Politics
+    issn: "1086-3338"
+    discipline: politics
+    sci: false
+
+  # ---- 经济学 ----
+  - id: qje
+    name: 经济学季刊
+    name_en: Quarterly Journal of Economics
+    issn: "0033-5533"
+    discipline: economics
+    sci: false
+  - id: jpe
+    name: 政治经济学杂志
+    name_en: Journal of Political Economy
+    issn: "0022-3808"
+    discipline: economics
+    sci: false
+
+  # ---- 商业与金融 ----
+  - id: jf
+    name: 金融学杂志
+    name_en: The Journal of Finance
+    issn: "0022-1082"
+    discipline: business
+    sci: false
+  - id: amp
+    name: 管理学会展望
+    name_en: Academy of Management Perspectives
+    issn: "1558-9080"
+    discipline: business
+    sci: false

@@ -408,3 +408,171 @@ def top_events(region: str, limit: int = 5, hours: int = WINDOW_HOURS) -> list[d
                     "n_sources": len(by_src),
                 })
     return out
+
+
+# ---------- 学术期刊 ----------
+#
+# 这一节的函数**不被任何 AI 步骤调用**（translate / classify / events / summarize /
+# english 全都只查 articles）。论文与新闻的隔离靠的就是这一点：不是靠过滤条件，
+# 而是靠根本不在同一张表里。改动这一节时请保持这个性质。
+
+PAPER_WINDOW_DAYS = 90     # 页面展示窗口：季刊也要有内容，见 journals.py 的实测数据
+PAPER_PICK_DAYS = 30       # Top5 取材窗口：90 天下榜单几个月不变，失去意义
+PAPER_KEEP_DAYS = 365      # 超出则清理，约 9000 行/年
+
+
+def paper_cutoff(days: int = PAPER_WINDOW_DAYS) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def upsert_papers(papers: list[dict]) -> int:
+    """按 id(DOI 哈希) 去重插入，返回新增条数。
+
+    用 INSERT OR IGNORE 而不是 REPLACE：已经翻译好的 title_zh 不能被后续抓取覆盖掉。
+    """
+    init()
+    n = 0
+    with connect() as conn:
+        for p in papers:
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO papers
+                   (id, journal_id, journal_name, discipline, sci, title, doi, url,
+                    authors, abstract, published_at, fetched_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (p["id"], p["journal_id"], p["journal_name"], p["discipline"],
+                 1 if p["sci"] else 0, p["title"], p["doi"], p["url"],
+                 p["authors"], p["abstract"], p["published_at"], p["fetched_at"]))
+            n += cur.rowcount
+    return n
+
+
+def papers_by_discipline(discipline: str, days: int = PAPER_WINDOW_DAYS,
+                         per_journal: int = 60) -> list[sqlite3.Row]:
+    """某学科窗口内的论文，按刊分组后每刊只取最新的 per_journal 篇。
+
+    必须按刊截断：Nature 90 天有近千篇，不截断会把同页的人口学 28 篇彻底淹掉。
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM papers WHERE discipline=? AND published_at>=?
+               ORDER BY published_at DESC""",
+            (discipline, paper_cutoff(days))).fetchall()
+    out, seen = [], {}
+    for r in rows:
+        k = r["journal_id"]
+        seen[k] = seen.get(k, 0) + 1
+        if seen[k] <= per_journal:
+            out.append(r)
+    return out
+
+
+def paper_discipline_counts(days: int = PAPER_WINDOW_DAYS) -> dict[str, int]:
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT discipline d, COUNT(*) n FROM papers
+               WHERE published_at>=? GROUP BY discipline""",
+            (paper_cutoff(days),)).fetchall()
+    return {r["d"]: r["n"] for r in rows}
+
+
+def papers_untranslated(limit: int) -> list[sqlite3.Row]:
+    """待翻译的论文标题，最新的优先。limit 是节流用的——见 journals.TRANSLATE_PER_RUN。"""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT * FROM papers
+               WHERE (title_zh IS NULL OR title_zh='') AND published_at>=?
+               ORDER BY published_at DESC LIMIT ?""",
+            (paper_cutoff(), int(limit))).fetchall()
+
+
+def papers_untranslated_count() -> int:
+    with connect() as conn:
+        return conn.execute(
+            """SELECT COUNT(*) c FROM papers
+               WHERE (title_zh IS NULL OR title_zh='') AND published_at>=?""",
+            (paper_cutoff(),)).fetchone()["c"]
+
+
+def set_paper_title_zh(paper_id: str, title_zh: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE papers SET title_zh=? WHERE id=?", (title_zh, paper_id))
+
+
+def pick_candidates(sci: bool, days: int = PAPER_PICK_DAYS,
+                    per_journal: int = 15) -> list[sqlite3.Row]:
+    """Top5 的候选池：该池内各刊最近 days 天的最新 per_journal 篇。"""
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM papers WHERE sci=? AND published_at>=?
+               ORDER BY published_at DESC""",
+            (1 if sci else 0, paper_cutoff(days))).fetchall()
+    out, seen = [], {}
+    for r in rows:
+        k = r["journal_id"]
+        seen[k] = seen.get(k, 0) + 1
+        if seen[k] <= per_journal:
+            out.append(r)
+    return out
+
+
+def save_picks(pool: str, picks: list[dict]) -> None:
+    """覆盖写入某池的五篇。picks: [{paper_id, reason}]"""
+    now = utc_now()
+    with connect() as conn:
+        conn.execute("DELETE FROM paper_picks WHERE pool=?", (pool,))
+        for i, p in enumerate(picks, 1):
+            conn.execute(
+                """INSERT INTO paper_picks(pool, rank, paper_id, reason, generated_at)
+                   VALUES (?,?,?,?,?)""",
+                (pool, i, p["paper_id"], p["reason"], now))
+
+
+def latest_picks(pool: str) -> list[dict]:
+    """某池的五篇 + 论文全文字段。论文已被清理时自动跳过，不会渲染出死链。"""
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT k.rank, k.reason, k.reason_en, k.generated_at, p.*
+               FROM paper_picks k JOIN papers p ON p.id = k.paper_id
+               WHERE k.pool=? ORDER BY k.rank""", (pool,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def picks_stale(pool: str, hours: int = 24) -> bool:
+    with connect() as conn:
+        r = conn.execute(
+            "SELECT MAX(generated_at) g FROM paper_picks WHERE pool=?", (pool,)).fetchone()
+    return not r or not r["g"] or r["g"] < window_cutoff(hours)
+
+
+def journal_metrics() -> dict[str, dict]:
+    with connect() as conn:
+        return {r["journal_id"]: dict(r)
+                for r in conn.execute("SELECT * FROM journal_metrics")}
+
+
+def save_journal_metrics(rows: list[dict]) -> None:
+    now = utc_now()
+    with connect() as conn:
+        for r in rows:
+            conn.execute(
+                """INSERT OR REPLACE INTO journal_metrics
+                   (journal_id, mean_citedness, h_index, works_count, refreshed_at)
+                   VALUES (?,?,?,?,?)""",
+                (r["journal_id"], r["mean_citedness"], r["h_index"],
+                 r["works_count"], now))
+
+
+def metrics_stale(days: int = 30) -> bool:
+    with connect() as conn:
+        r = conn.execute("SELECT MIN(refreshed_at) g FROM journal_metrics").fetchone()
+    return not r or not r["g"] or r["g"] < paper_cutoff(days)
+
+
+def prune_papers(days: int = PAPER_KEEP_DAYS) -> int:
+    """清掉过老的论文。被选进 paper_picks 的一律保留，否则页面上的五篇会变成死链。"""
+    with connect() as conn:
+        cur = conn.execute(
+            """DELETE FROM papers WHERE published_at < ?
+               AND id NOT IN (SELECT paper_id FROM paper_picks)""",
+            (paper_cutoff(days),))
+        return cur.rowcount

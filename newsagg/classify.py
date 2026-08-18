@@ -9,7 +9,7 @@ from __future__ import annotations
 
 
 from . import db, extract
-from .ai import complete, parse_json
+from .ai import complete, is_daily_limit, parse_json
 from .models import CATEGORIES, FALLBACK_CATEGORY
 
 BATCH = 30        # 第一级每批标题数
@@ -69,6 +69,10 @@ def classify(hours: int = 24) -> int:
         try:
             text = complete("classify", _SYSTEM1, user, max_tokens=MAX_TOK, temperature=0).text
         except Exception as e:
+            # 日额度耗尽时后面每一批都会同样失败，接着循环只是刷屏
+            if is_daily_limit(e):
+                print(f"  分类因当日额度耗尽中止，已处理 {i} 篇，明日续。")
+                break
             print(f"  [分类批 {i//BATCH + 1} 失败] {type(e).__name__}: {e}")
             continue
         data = parse_json(text) or {}
@@ -102,6 +106,12 @@ def classify(hours: int = 24) -> int:
             data = parse_json(text) or {}
             got = {str(a.get("id", "")): a for a in data.get("assignments", [])}
         except Exception as e:
+            # 日额度耗尽：直接跳出，**不要**落到下面的兜底分类。
+            # 下面那段在拿不到结果时会把文章塞进 FALLBACK_CATEGORY，一旦写进库
+            # 就等于永久定成「社会」，明天也不会再重判了。留着不分类，下一轮能正常判。
+            if is_daily_limit(e):
+                print(f"  二级分类因当日额度耗尽中止，剩余 {len(uncertain) - i} 篇留待明日重判。")
+                break
             print(f"  [二级批 {i//BATCH2 + 1} 失败] {type(e).__name__}: {e}")
             got = {}
         for short, row in id_map.items():

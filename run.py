@@ -10,6 +10,10 @@
 
 页面右上角的中/EN 切换按钮始终可用：界面文字是内置的，不需要 --en；
 --en 只影响 AI 生成的那部分内容（标题译文、分类纪要、Top5）是否也有英文版。
+
+学术期刊是并行的一条支线：数据走 Crossref，存在独立的 papers 表，
+**不参与**新闻的分类 / Top5 / 分类纪要，失败也不会影响新闻部分。
+--cn-only 时整段跳过（Crossref 在境外）。
 """
 from __future__ import annotations
 
@@ -38,9 +42,39 @@ def main() -> None:
     total = len(STEPS) + 2 + (1 if want_en and not no_ai else 0)
 
     print("=" * 54, f"\n[1/{total}] 抓取（窗口 {WINDOW_HOURS}h）")
-    fetch.run(hours=WINDOW_HOURS,
-              cn_only="--cn-only" in sys.argv,
-              skip_probe="--all" in sys.argv)
+    cn_only = "--cn-only" in sys.argv
+    fetch.run(hours=WINDOW_HOURS, cn_only=cn_only, skip_probe="--all" in sys.argv)
+
+    # 学术期刊的**抓取**：不调用 AI，放在这里没有代价。
+    # 它的 AI 环节（译题 + 五篇精选）刻意放到全部新闻步骤之后，见下方 journal_ai()。
+    if cn_only:
+        print("\n[学术期刊] --cn-only：Crossref 在境外，跳过")
+    else:
+        try:
+            from newsagg import journals
+            from newsagg.db import PAPER_WINDOW_DAYS
+            print(f"\n[学术期刊] 抓取（窗口 {PAPER_WINDOW_DAYS} 天）")
+            journals.fetch()
+        except Exception as e:
+            print(f"  [中断] {type(e).__name__}: {e}\n  不影响新闻部分，下一轮会重试。")
+
+    def journal_ai() -> None:
+        """论文译题 + 五篇精选。
+
+        **必须排在所有新闻步骤之后。** 免费档每天 20 万 token 是新闻和论文共用的，
+        论文首次回填有上千条待译；先跑论文就会把额度吃光，新闻的分类纪要和 Top5
+        全部拿不到额度——实测过一次，正是这个顺序导致当天新闻侧一段纪要都没生成。
+        新闻是主功能，论文是附加，所以让论文捡剩下的。
+        """
+        if cn_only or no_ai or manual:
+            return
+        try:
+            from newsagg import paperai
+            print(f"\n[学术期刊] AI 环节（译题 + 五篇精选）")
+            paperai.translate_papers()
+            paperai.pick_all()
+        except Exception as e:
+            print(f"  [中断] {type(e).__name__}: {e}\n  不影响新闻部分，下一轮会重试。")
 
     if manual:
         from newsagg import manual as mn
@@ -77,6 +111,8 @@ def main() -> None:
                 print(f"  [跳过] {e}")
             except Exception as e:
                 print(f"  [中断] {type(e).__name__}: {e}\n  英文缺失的部分会回退显示中文。")
+
+    journal_ai()
 
     print(f"\n[{total}/{total}] 渲染")
     render.render(hours=WINDOW_HOURS)

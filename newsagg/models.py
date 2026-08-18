@@ -151,4 +151,49 @@ CREATE TABLE IF NOT EXISTS event_articles (
     article_id TEXT NOT NULL,
     PRIMARY KEY (event_id, article_id)
 );
+
+-- ---------- 学术期刊 ----------
+-- 刻意**不**复用 articles 表、也不新增一个 region：translate / classify / english /
+-- 琐碎判定这几步的取数查询都不带 region 过滤，论文一旦进 articles 就会被它们
+-- 全部卷进去，白烧 token 还会污染新闻的分类与 Top5。独立一张表是结构性隔离——
+-- 现有代码不可能查到它。论文本身也需要 DOI/作者/期刊/学科这些 articles 没有的字段。
+CREATE TABLE IF NOT EXISTS papers (
+    id            TEXT PRIMARY KEY,      -- sha1(DOI)
+    journal_id    TEXT NOT NULL,         -- journals.yaml 里的 id
+    journal_name  TEXT NOT NULL,
+    discipline    TEXT NOT NULL,         -- journals.yaml 里的 discipline id
+    sci           INTEGER DEFAULT 0,     -- 1=SCI 候选池 0=SSCI 候选池
+    title         TEXT NOT NULL,
+    title_zh      TEXT DEFAULT '',
+    doi           TEXT NOT NULL,
+    url           TEXT NOT NULL,
+    authors       TEXT DEFAULT '',
+    abstract      TEXT DEFAULT '',
+    published_at  TEXT NOT NULL,
+    fetched_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_papers_pub  ON papers(published_at);
+CREATE INDEX IF NOT EXISTS idx_papers_disc ON papers(discipline);
+
+-- 期刊影响力指标。注意这是 OpenAlex 的「两年篇均被引」，
+-- **不是** Clarivate 的影响因子（JIF）——那是专有数据，拿不到也不该冒充。
+CREATE TABLE IF NOT EXISTS journal_metrics (
+    journal_id     TEXT PRIMARY KEY,
+    mean_citedness REAL,
+    h_index        INTEGER,
+    works_count    INTEGER,
+    refreshed_at   TEXT NOT NULL
+);
+
+-- AI 从候选里挑出的五篇。只存 paper_id，正文与链接渲染时现查，
+-- 保证页面上的 DOI 一定指向库里真实存在的那篇。
+CREATE TABLE IF NOT EXISTS paper_picks (
+    pool         TEXT NOT NULL,          -- 'sci' | 'ssci'
+    rank         INTEGER NOT NULL,
+    paper_id     TEXT NOT NULL,
+    reason       TEXT NOT NULL,
+    reason_en    TEXT DEFAULT '',
+    generated_at TEXT NOT NULL,
+    PRIMARY KEY (pool, rank)
+);
 """

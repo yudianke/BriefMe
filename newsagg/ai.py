@@ -361,6 +361,16 @@ def _is_daily_limit(e) -> bool:
     return bool(_DAILY_RE.search(str(e)))
 
 
+def is_daily_limit(e) -> bool:
+    """这个异常是不是「当日额度用尽」。
+
+    给分批循环的调用方用：日额度耗尽时后面每一批都会以同样的理由失败，
+    继续循环只是在刷屏和浪费时间（实测一次跑会连撞十几次）。
+    与每分钟限流不同——那个等几秒就好，值得重试。
+    """
+    return _is_rate_limit(e) and _is_daily_limit(e)
+
+
 def _daily_usage(e) -> str:
     """从 429 文案里提取「已用/总额」，让用户看得见自己烧到哪了。"""
     m = _USAGE_RE.search(str(e))

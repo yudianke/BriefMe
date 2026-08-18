@@ -7,7 +7,7 @@ from __future__ import annotations
 
 
 from . import db
-from .ai import complete, parse_json
+from .ai import complete, is_daily_limit, parse_json
 
 BATCH = 25
 MAX_TOK = 1800
@@ -33,6 +33,10 @@ def translate(hours: int = 24) -> int:
         try:
             text = complete("translate", _SYSTEM, user, max_tokens=MAX_TOK, temperature=0).text
         except Exception as e:
+            # 日额度耗尽时后面每一批都会同样失败，接着循环只是刷屏
+            if is_daily_limit(e):
+                print(f"  翻译因当日额度耗尽中止，已完成 {done} 条，明日续。")
+                break
             print(f"  [翻译批 {i//BATCH + 1} 失败] {type(e).__name__}: {e}")
             continue
         data = parse_json(text) or {}

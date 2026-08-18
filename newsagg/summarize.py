@@ -7,7 +7,7 @@ from __future__ import annotations
 
 
 from . import db
-from .ai import complete
+from .ai import complete, is_daily_limit
 from .models import CATEGORIES, REGIONS, WINDOW_HOURS
 
 _SYSTEM = (
@@ -51,6 +51,11 @@ def summarize(hours: int = WINDOW_HOURS, force: bool = False) -> int:
                 text = complete("summarize", _SYSTEM, user,
                                 max_tokens=900, temperature=0.2).text.strip()
             except Exception as e:
+                # 日额度耗尽：剩下十几个分类会以同样理由逐个失败，
+                # 继续循环只是刷屏（实测一次跑连撞 12 次）。直接收工，已写的照常渲染。
+                if is_daily_limit(e):
+                    print(f"  汇总因当日额度耗尽中止，本次已生成 {made} 段，明日续。")
+                    return made
                 print(f"  [汇总 {REGIONS[region]}·{cat} 失败] {type(e).__name__}: {e}")
                 continue
             with db.connect() as conn:

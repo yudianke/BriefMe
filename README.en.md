@@ -11,7 +11,9 @@ to read. A button in the top-right switches the whole site between 中文 and En
 Home                 China Top 5 / World Top 5 (one slot per event, not per article)
  ├─ China News       four-column grid of 16 categories, filter by outlet on the left
  │   └─ World Politics   AI event brief + every report in that category
- └─ World News       original headline stays; the translation goes underneath
+ ├─ World News       original headline stays; the translation goes underneath
+ └─ Journals        19 journals across 8 disciplines + five AI picks each for SCI/SSCI
+                    (a separate track — it does not touch the news pipeline)
 ```
 
 > The interface is fully bilingual out of the box. Translating the
@@ -39,8 +41,9 @@ later, double-click `view.bat` — no need to re-run anything.
 
 ## How it works
 
-Five stages. Each one writes its output to a local SQLite database, so any
-stage can be re-run on its own:
+The news pipeline has five stages, each writing its output to a local SQLite
+database so any stage can be re-run on its own. (Journals are a parallel track
+that takes no part in these stages — see the Journals section.)
 
 | Stage | What it does | Notes |
 |---|---|---|
@@ -123,6 +126,17 @@ Rough cost per run: about 90k tokens when 200 new articles come in, about 30k wh
 only a few dozen do. If you are short on quota, `--no-ai` refreshes just the
 headline lists, and `--manual` hands the AI work to a coding assistant instead.
 
+**News and journals share one daily budget, and news comes first.** The paper
+translations and picks run after every news step, on whatever is left. The initial
+backfill is around a thousand titles, throttled to 300 per run and spread over a few
+runs, with the remaining count printed each time. This ordering matters: running
+papers first exhausted the quota during testing and left the news with no category
+briefs and no Top 5 at all.
+
+When the daily quota does run out, nothing spins. The step stops immediately and says
+so, instead of retrying each remaining batch or category against a limit that will not
+lift until tomorrow, and whatever finished is still rendered.
+
 ---
 
 ## Run modes
@@ -173,6 +187,48 @@ python -m newsagg.fetch --purge-junk --yes  # delete once you're satisfied
 ```
 
 Anything removed is logged to `dropped_titles` too, so `--dropped` can still show it.
+
+### Journals
+
+The fourth nav item: 19 journals grouped into 8 disciplines, plus five AI-selected
+papers each for SCI and SSCI.
+
+**Data comes from the public [Crossref](https://www.crossref.org/) API** — publishers
+deposit their own metadata there, so one interface covers every journal, free and
+without a key. That means no per-publisher scraping and no robots.txt to negotiate.
+Records missing an abstract are topped up from [OpenAlex](https://openalex.org/).
+
+| | Value | Why |
+|---|---|---|
+| Display window | 90 days | Quarterlies need it: *Demography* publishes 28 papers per 90 days, *Academy of Management Perspectives* 10. A 24-hour window would be empty most days |
+| Picks drawn from | 30 days | Over 90 days the list would barely change for months |
+| Fetch frequency | once per 24h | Papers do not update hourly |
+| Cap per journal | 200 most recent | *Nature* runs to ~1000 per 90 days and would bury *Demography*'s 28 on the same page. Each discipline page shows the journal's **actual** coverage range rather than claiming 90 days |
+| Retention | 365 days | ~9,000 rows a year — nothing for SQLite |
+
+**This is a separate track from the news.** Papers live in their own `papers` table
+rather than in `articles`, because the translate / classify / Top-5 / summary steps
+all query without a region filter — anything landing in `articles` gets swept into
+the whole AI pipeline, burning tokens and polluting the news categories. A separate
+table is structural isolation: the existing code cannot reach it.
+
+**On the "cited" figure: that is the OpenAlex 2-year mean citedness, not the Clarivate
+Journal Impact Factor.** The JIF is proprietary; this project cannot obtain it and
+should not substitute another metric while implying otherwise.
+
+**On how far to trust the five picks.** This step is a *selection* task: the model may
+only choose from the supplied candidates and write one sentence that stays inside the
+title and abstract. Every returned DOI must match a candidate, or the whole batch is
+discarded and the previous picks kept. Roughly 70% of records carry no publisher
+abstract (Nature, the three IEEE titles and *American Psychologist* supply almost
+none), so those are judged on the title alone — the page says so. Journal metrics and
+DOI links are emitted directly by the program, never by the model, so every entry can
+be opened and checked.
+
+To add a journal, edit `config/journals.yaml` with its ISSN, discipline and
+`sci: true/false`. Note that a journal's print and electronic ISSNs are separate
+records in Crossref, and picking the wrong one can return data that stopped years ago
+(*World Politics* requires the electronic ISSN).
 
 ### Language switching
 
@@ -304,6 +360,7 @@ Then just run `python run.py`. No other code needs to change.
 
 ```
 config/sources.yaml     the source list (add sources here)
+config/journals.yaml    the journal list (add journals here)
 newsagg/
   fetch.py              fetching + the overseas connectivity probe
   scrapers.py           per-site parsing (respects robots.txt)
@@ -312,6 +369,7 @@ newsagg/
   english.py            --en mode: translates the Chinese output into English
   render.py             static site   ai.py         AI provider registry
   manual.py             export/load for --manual mode
+  journals.py           journal fetching (Crossref)  paperai.py  paper titles + picks
 templates/              page templates + CSS + front-end scripts (i18n.js runs the toggle)
 run.py                  entry point   view.bat      opens the generated page
 ```

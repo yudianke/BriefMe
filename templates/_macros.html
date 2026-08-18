@@ -62,6 +62,10 @@ var e=document.documentElement;e.setAttribute('data-lang','en');e.lang='en';}}ca
   <a class="navlink{% if active == r %} active{% endif %}"
      href="{{ region_file(r) }}">{{ t(region_nav[r], region_nav_en[r]) }}</a>
   {% endfor %}
+  {# 学术期刊单列一项，不进 region_nav：它不是一个「地区」，也刻意不参与
+     Top5 / 分类纪要那条流水线（见 models.DDL 里 papers 表的注释）。 #}
+  <a class="navlink{% if active == 'journals' %} active{% endif %}"
+     href="journals.html">{{ t('学术期刊', 'Journals') }}</a>
   <span class="nav-actions">{{ extra }}{{ lang_btn() }}</span>
 </nav>
 {% endmacro %}

@@ -1,0 +1,95 @@
+{% import "_macros.html" as m %}<!doctype html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-en="Journals · BriefMe">学术期刊 · 每日简讯</title>
+  {{ m.lang_boot() }}
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-region="journals">
+  <header class="site">
+    <h1>{{ m.t('学术期刊', 'Journals') }}</h1>
+    <p class="meta">
+      {{ m.t('%d 本期刊 · 近 %d 天 · 更新于'|format(n_journals, window_days),
+             '%d journals · past %d days · updated'|format(n_journals, window_days)) }}
+      {{ m.time_tag(generated_utc) }}
+    </p>
+    {{ m.mainnav('journals') }}
+  </header>
+
+  <main class="jr-main">
+    {# ---------- 两个五篇精选 ---------- #}
+    {% if picks.sci or picks.ssci %}
+    <div class="pick-cols">
+      {% for pool, label, label_en in [('sci', 'SCI 五篇精选', 'SCI · Five Picks'),
+                                       ('ssci', 'SSCI 五篇精选', 'SSCI · Five Picks')] %}
+      {% if picks[pool] %}
+      <section class="pick-col">
+        <h2 class="pick-h">{{ m.t(label, label_en) }}
+          <span class="pick-sub">{{ m.t('近 %d 天'|format(pick_days),
+                                        'past %d days'|format(pick_days)) }}</span></h2>
+        <ol class="pick-list">
+          {% for p in picks[pool] %}
+          <li class="pick-item">
+            <a class="t-main" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.title }}</a>
+            {% if p.title_zh %}<span class="t-alt i18n-zh">{{ p.title_zh }}</span>{% endif %}
+            <p class="pick-reason">{{ p.reason }}</p>
+            <p class="pick-meta">
+              <span class="jr-badge">{{ m.t(p.journal_name, p.journal_name_en) }}</span>
+              {# title 里只能放纯文本：m.t() 会输出 <span>，塞进属性会把属性撑破 #}
+              {% if p.mean_citedness %}<span class="jr-cite" title="{{ cite_tip }}"
+                >{{ m.t('篇均被引', 'cited') }} {{ '%.1f'|format(p.mean_citedness) }}</span>{% endif %}
+              <span class="jr-doi">{{ p.doi }}</span>
+            </p>
+          </li>
+          {% endfor %}
+        </ol>
+      </section>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <p class="jr-note">{{ m.t(
+      '精选由 AI 从上表候选中挑选，理由只复述标题与摘要；约七成条目出版商未提供摘要，'
+      '这类只能依标题判断。请点开原文核对。期刊指标与链接由程序直接输出，不经模型。',
+      'Picks are chosen by AI from the candidates above; the stated reason only restates the '
+      'title and abstract. Roughly 70% of records carry no publisher abstract, so those are '
+      'judged on the title alone — open the original to verify. Journal metrics and links are '
+      'emitted directly, not by the model.') }}</p>
+    {% endif %}
+
+    {# ---------- 学科网格 ---------- #}
+    {% if cards %}
+    <h2 class="jr-sec">{{ m.t('按学科浏览', 'Browse by discipline') }}</h2>
+    <div class="cat-grid">
+      {% for c in cards %}
+      <section class="cat-card">
+        <a class="cat-title" href="{{ c.link }}">{{ m.t(c.name, c.name_en) }}<span
+           class="count">{{ c.count }}</span></a>
+        <ul class="titles">
+          {% for p in c.papers %}
+          <li>
+            <div class="t">
+              <a class="t-main" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.title }}</a>
+              {% if p.title_zh %}<span class="t-alt i18n-zh">{{ p.title_zh }}</span>{% endif %}
+            </div>
+            <span class="src"><span class="jr-badge">{{ m.t(p.journal_name, p.journal_name_en) }}</span>
+              · {{ m.time_tag(p.published_at) }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <a class="more" href="{{ c.link }}">{{ m.t('查看全部', 'View all') }}
+          <span class="more-n">{{ c.count }}</span>{{ m.t(' 篇 →', ' →') }}</a>
+      </section>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">{{ m.t('暂无论文。运行 python run.py 抓取。',
+                            'No papers yet — run python run.py to fetch.') }}</p>
+    {% endif %}
+  </main>
+
+  <script src="i18n.js"></script>
+  <script src="localtime.js"></script>
+</body>
+</html>

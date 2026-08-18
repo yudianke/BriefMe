@@ -128,6 +128,11 @@ def _env() -> Environment:
     names_en = source_names_en()
     env.globals["source_en"] = lambda sid: names_en.get(sid, "")
     env.globals["long_window_sources"] = long_window_sources()
+    # 纯文本，供 title= 属性使用。**不能**用 m.t() 生成：那个宏输出的是 <span> 标签，
+    # 放进属性值会把属性提前闭合，页面结构就坏了。
+    env.globals["cite_tip"] = (
+        "OpenAlex 两年篇均被引，不是 Clarivate 影响因子（JIF） / "
+        "OpenAlex 2-year mean citedness, not the Clarivate JIF")
     return env
 
 
@@ -151,6 +156,86 @@ def long_window_sources() -> list[dict]:
         out.append({"name": s["name"], "name_en": s.get("name_en") or s["name"],
                     "hours": hours})
     return out
+
+
+def discipline_filename(disc_id: str) -> str:
+    return f"disc-{disc_id}.html"
+
+
+def render_journals(env: Environment, generated_utc: str) -> None:
+    """学术期刊总览页 + 每个学科一页。
+
+    与新闻部分完全分离：只读 papers / paper_picks / journal_metrics 三张表，
+    不碰 articles，也不参与 Top5 与分类纪要。
+    """
+    try:
+        from .journals import load_journals
+        disciplines, journals = load_journals()
+    except Exception as e:
+        print(f"  [学术期刊页跳过] 读不到 config/journals.yaml：{e}")
+        return
+
+    jmeta = {j["id"]: j for j in journals}
+    metrics = db.journal_metrics()
+    counts = db.paper_discipline_counts()
+
+    def decorate(p: dict) -> dict:
+        """补上期刊英文名与指标——这些来自配置和数据库，不经模型。"""
+        j = jmeta.get(p["journal_id"], {})
+        m = metrics.get(p["journal_id"], {})
+        return {**p,
+                "journal_name_en": j.get("name_en") or p["journal_name"],
+                "mean_citedness": m.get("mean_citedness")}
+
+    picks = {pool: [decorate(p) for p in db.latest_picks(pool)]
+             for pool in ("sci", "ssci")}
+
+    cards = []
+    for d in disciplines:
+        n = counts.get(d["id"], 0)
+        if not n:
+            continue
+        preview = db.papers_by_discipline(d["id"])[:PREVIEW_PER_CAT]
+        cards.append({"name": d["name"], "name_en": d["name_en"], "count": n,
+                      "link": discipline_filename(d["id"]),
+                      "papers": [decorate(dict(p)) for p in preview]})
+
+    (OUT / "journals.html").write_text(
+        env.get_template("journals.html").render(
+            picks=picks, cards=cards, n_journals=len(journals),
+            window_days=db.PAPER_WINDOW_DAYS, pick_days=db.PAPER_PICK_DAYS,
+            generated_utc=generated_utc),
+        encoding="utf-8")
+
+    tpl = env.get_template("discipline.html")
+    n_pages = 0
+    for d in disciplines:
+        rows = db.papers_by_discipline(d["id"])
+        if not rows:
+            continue
+        by_journal: dict[str, list] = {}
+        for r in rows:
+            by_journal.setdefault(r["journal_id"], []).append(dict(r))
+        groups = []
+        for jid, ps in sorted(by_journal.items(), key=lambda x: -len(x[1])):
+            j = jmeta.get(jid, {})
+            m = metrics.get(jid, {})
+            groups.append({
+                "name": ps[0]["journal_name"],
+                "name_en": j.get("name_en") or ps[0]["journal_name"],
+                "mean_citedness": m.get("mean_citedness"), "h_index": m.get("h_index"),
+                # 真实覆盖区间：高产刊会被单刊抓取上限截断，页头不能笼统写「90 天」
+                "lo": min(p["published_at"] for p in ps),
+                "hi": max(p["published_at"] for p in ps),
+                "papers": ps})
+        (OUT / discipline_filename(d["id"])).write_text(
+            tpl.render(name=d["name"], name_en=d["name_en"], journals=groups,
+                       total=len(rows), generated_utc=generated_utc),
+            encoding="utf-8")
+        n_pages += 1
+    if cards:
+        print(f"  学术期刊：总览页 + {n_pages} 个学科页"
+              f"（{sum(counts.values())} 篇论文）")
 
 
 def render(hours: int = WINDOW_HOURS) -> None:
@@ -255,6 +340,8 @@ def render(hours: int = WINDOW_HOURS) -> None:
                                generated_utc=generated_utc),
                 encoding="utf-8")
             n_cat_pages += 1
+
+    render_journals(env, generated_utc)
 
     for asset in ("style.css", "i18n.js", "localtime.js", "srcfilter.js"):
         src = TEMPLATES / asset
