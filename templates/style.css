@@ -274,3 +274,26 @@ code { background: var(--chip); padding: 1px 6px; border-radius: 4px; font-size:
 .paper-ab { margin: 5px 0 0; font-size: 13px; line-height: 1.7; color: var(--fg2, inherit);
             opacity: .88; }
 .paper-meta { margin: 5px 0 0; font-size: 11.5px; color: var(--muted); }
+
+/* ---------- 按来源页 ---------- */
+/* 侧栏与其下方的入口链接成一列，避免链接被 sticky 的筛选栏带走 */
+.side-col { flex: 0 0 172px; position: sticky; top: 14px; }
+.side-col .srcbar { position: static; flex: none; }
+.side-link {
+  display: block; margin-top: 8px; text-align: center;
+  font-size: 12.5px; color: var(--accent); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 6px;
+}
+.side-link:hover { border-color: var(--accent); }
+/* 未分类提示：橙色左边框，和页面上其他 meta 区分开，但不做成刺眼的警告条 */
+.unc-note {
+  border-left: 3px solid var(--accent); padding: 7px 11px;
+  background: var(--card); border-radius: 0 8px 8px 0; margin: 0 0 14px;
+}
+.unc-note a { color: var(--accent); }
+.src-group { margin: 0 0 26px; }
+
+@media (max-width: 900px) {
+  .side-col { position: static; flex: none; margin-bottom: 14px; }
+  .side-link { margin-top: 10px; }
+}

@@ -4,6 +4,7 @@
   index.html          首页 —— 中国 Top5 / 国际 Top5（按事件聚合）
   region-{region}.html 分类总览 —— 四列分类网格
   cat-{region}-{i}.html 分类详情 —— AI 事件纪要 + 全部报道
+  src-{region}.html    按来源 —— 按媒体罗列窗口内全部报道（不依赖 AI 分类）
 
 所有时间以 UTC ISO 写进 data-utc，由前端 JS 转成用户当地时间。
 所有取数一律走 db.recent_*（强制滚动窗口，长度见 models.WINDOW_HOURS）。
@@ -34,6 +35,10 @@ def cat_filename(region: str, category: str) -> str:
 
 def region_filename(region: str) -> str:
     return f"region-{region}.html"
+
+
+def source_filename(region: str) -> str:
+    return f"src-{region}.html"
 
 
 def _summary(region: str, category: str) -> tuple[str, str]:
@@ -330,31 +335,64 @@ def render(hours: int = WINDOW_HOURS) -> None:
                 "trivial_counts": json.dumps(per_trivial, ensure_ascii=False),
             })
 
-        # 该地区窗口内出现过的媒体，按条数降序（左侧筛选栏用）
+        # 左侧筛选栏的计数**只统计本页点得到的（已分类的）文章**，与分类徽章同源。
+        # 早先这里用的是 db.recent_articles（含未分类），于是侧栏说新华社 339 篇、
+        # 而所有分类徽章加起来只有 230 篇，差的那些在站上根本点不到。
+        # 未分类的部分改由下面的 n_unclassified 提示条交代，并在按来源页上全量展示。
+        # 按**去重后的文章数**统计，不是「篇×类」：一篇可归 1-2 类，
+        # 累加各分类会把双分类的文章数两遍，结果可能比按来源页上同一媒体的
+        # 总数还大，看起来像 bug。这里的口径是「本页点得到该媒体多少篇」，
+        # 与按来源页相减恰好等于未分类数，正好和提示条对得上。
         media: dict[str, dict] = {}
-        for a in db.recent_articles(hours, region):
-            m = media.setdefault(a["source"],
-                                 {"id": a["source"], "name": a["source_name"],
-                                  "name_en": names_en.get(a["source"]) or a["source_name"],
-                                  "count": 0})
-            m["count"] += 1
+        seen_by_src: dict[str, set] = {}
+        for arts in cat_articles.values():
+            for a in arts:
+                m = media.setdefault(a["source"],
+                                     {"id": a["source"], "name": a["source_name"],
+                                      "name_en": names_en.get(a["source"]) or a["source_name"],
+                                      "count": 0})
+                ids = seen_by_src.setdefault(a["source"], set())
+                if a["id"] not in ids:
+                    ids.add(a["id"])
+                    m["count"] += 1
         media_list = sorted(media.values(), key=lambda x: -x["count"])
-        # 未分类时的回退：按媒体分组，保证没有 AI 也能浏览标题
-        sources = []
-        if not cards:
-            by_src: dict[str, dict] = {}
-            for a in db.recent_articles(hours, region):
-                g = by_src.setdefault(a["source"], {
-                    "name": a["source_name"],
-                    "name_en": names_en.get(a["source"]) or a["source_name"],
-                    "articles": []})
-                g["articles"].append(a)
-            sources = list(by_src.values())
+
+        # 窗口内有多少篇尚未分类——这些进不了任何分类页，页面上要如实说一句，
+        # 否则用户只会看到「抓了很多但页面上没有」。跑完整流程后它归零，提示自动消失。
+        classified = {a["id"] for arts in cat_articles.values() for a in arts}
+        n_unclassified = sum(1 for a in db.recent_articles(hours, region)
+                             if a["id"] not in classified)
 
         (OUT / region_filename(region)).write_text(
             env.get_template("region.html").render(
                 region=region, label=REGION_NAV[region], label_en=REGION_NAV_EN[region],
-                cards=cards, sources=sources, media=media_list,
+                cards=cards, media=media_list, n_unclassified=n_unclassified,
+                source_link=source_filename(region),
+                generated_utc=generated_utc),
+            encoding="utf-8")
+
+        # ---------- 按来源页 ----------
+        # 存在的理由：分类页只能显示已分类的文章，未分类的那批在站上会彻底消失
+        # （实测曾有 1028 篇、占窗口的 38% 抓到了却任何页面都点不到）。
+        # 这一页直接走 db.recent_articles，不 JOIN article_categories，
+        # 因此按构造包含窗口内的每一篇，结构上兜住了这个洞。
+        by_src: dict[str, dict] = {}
+        for a in db.recent_articles(hours, region):
+            g = by_src.setdefault(a["source"], {
+                "id": a["source"], "name": a["source_name"],
+                "name_en": names_en.get(a["source"]) or a["source_name"],
+                "articles": []})
+            g["articles"].append(a)
+        src_groups = sorted(by_src.values(), key=lambda g: -len(g["articles"]))
+        src_media = sorted(
+            ({"id": g["id"], "name": g["name"], "name_en": g["name_en"],
+              "count": len(g["articles"])} for g in src_groups),
+            key=lambda x: -x["count"])
+        (OUT / source_filename(region)).write_text(
+            env.get_template("source.html").render(
+                region=region, label=REGION_NAV[region], label_en=REGION_NAV_EN[region],
+                sources=src_groups, media=src_media,
+                total=sum(len(g["articles"]) for g in src_groups),
                 generated_utc=generated_utc),
             encoding="utf-8")
 
@@ -413,7 +451,8 @@ def render(hours: int = WINDOW_HOURS) -> None:
                if not logo_for(s)]
     if missing:
         print(f"  提示：{', '.join(missing)} 无 logo 文件，使用文字占位块")
-    print(f"渲染完成：首页 + {len(REGIONS)} 个地区页 + {n_cat_pages} 个分类页 -> {OUT}")
+    print(f"渲染完成：首页 + {len(REGIONS)} 个地区页 + {len(REGIONS)} 个来源页 "
+          f"+ {n_cat_pages} 个分类页 -> {OUT}")
 
 
 if __name__ == "__main__":

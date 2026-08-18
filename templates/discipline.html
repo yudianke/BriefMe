@@ -29,7 +29,7 @@
 
     <main class="region-main">
     {% for j in journals %}
-    <section class="jr-journal" data-source="{{ j.id }}">
+    <section class="jr-journal" data-src-section data-source="{{ j.id }}">
       <h2 class="jr-jh">
         {{ m.t(j.name, j.name_en) }}
         <span class="count">{{ j.papers|length }}</span>

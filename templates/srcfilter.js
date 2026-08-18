@@ -17,8 +17,10 @@
   var boxes = [].slice.call(bar.querySelectorAll('.srcbox'));
   var cards = [].slice.call(document.querySelectorAll('.cat-card'));               // 地区页
   var articles = [].slice.call(document.querySelectorAll('article[data-source]')); // 分类页
-  // 学科页：论文按期刊分组成整块，筛选就是整块显隐（不像新闻那样逐条）
-  var sections = [].slice.call(document.querySelectorAll('.jr-journal[data-source]'));
+  // 「分组成整块」的页面（学科页按期刊、按来源页按媒体）：筛选就是整块显隐。
+  // 用 data-src-section 这个与外观无关的标记，而不是绑死某个 class——
+  // 两种页面视觉差别很大，但筛选行为完全一致。
+  var sections = [].slice.call(document.querySelectorAll('[data-src-section]'));
   var tip = document.getElementById('srcTip');
   var allHidden = document.getElementById('allHidden');
   var toggleBtn = document.getElementById('srcToggle');
@@ -82,7 +84,16 @@
     sections.forEach(function (sec) {
       var ok = !!set[sec.dataset.source];
       sec.hidden = !ok;
-      if (ok) visiblePapers += sec.querySelectorAll('.paper').length;
+      if (!ok) return;
+      // 期刊页的条目是 .paper，按来源页是带 data-trivial 的 li；
+      // 后者还要受「隐藏琐碎新闻」开关影响，所以逐条算而不是直接取长度。
+      var items = sec.querySelectorAll('.paper, li[data-trivial]');
+      if (!items.length) { visiblePapers += sec.querySelectorAll('li').length; return; }
+      [].forEach.call(items, function (it) {
+        var show = !(trivialOn && it.dataset.trivial === '1');
+        it.hidden = !show;
+        if (show) visiblePapers++;
+      });
     });
     if (sections.length && artCount) artCount.textContent = visiblePapers;
 
@@ -108,8 +119,12 @@
                        'Showing all ' + boxes.length + ' sources');
         }
       } else if (sections.length) {
-        setText(tip, '已选 ' + sel + ' 本 · ' + visiblePapers + ' 篇',
-                     sel + ' journals · ' + visiblePapers + ' papers');
+        // 整块显隐的页面有两种：期刊学科页（本/papers）与新闻按来源页（家/articles）。
+        // 量词得跟着页面走，否则中国新闻的来源页会写成「5/6 本 · 781 papers」。
+        setText(tip,
+          '已选 ' + sel + (isJournals ? ' 本 · ' : ' 家 · ') + visiblePapers + ' 篇',
+          sel + (isJournals ? ' journals · ' : ' sources · ') + visiblePapers +
+          (isJournals ? ' papers' : ' articles'));
       } else if (isJournals) {
         var visJ = cards.filter(function (c) { return !c.hidden; }).length;
         setText(tip, '已选 ' + sel + ' 本 · ' + visJ + ' 个学科',

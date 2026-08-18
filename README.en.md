@@ -10,7 +10,8 @@ to read. A button in the top-right switches the whole site between 中文 and En
 ```
 Home                 China Top 5 / World Top 5 (one slot per event, not per article)
  ├─ China News       four-column grid of 16 categories, filter by outlet on the left
- │   └─ World Politics   AI event brief + every report in that category
+ │   ├─ World Politics   AI event brief + every report in that category
+ │   └─ By source    every report in the window grouped by outlet, no AI needed
  ├─ World News       original headline stays; the translation goes underneath
  └─ Journals        19 journals across 8 disciplines + five AI picks each for SCI/SSCI
                     (a separate track — it does not touch the news pipeline)
@@ -153,6 +154,27 @@ python run.py --no-ai     # fetch and render only, no AI calls
 python run.py --manual    # spend no API credit — hand the AI work to a coding assistant
 python run.py --en        # also generate the English version of the AI content
 ```
+
+### Where the articles go when there is no AI
+
+Categories come from the AI (or from `--manual`), so articles fetched under
+`--no-ai` have no category and cannot appear on any category page. Each region
+therefore has a permanent **by-source page** (`src-china.html` / `src-world.html`)
+listing every report in the window grouped by outlet. It does not read the
+category table, so **every article in the window is on it**, with or without AI.
+
+Two entry points: a "Browse by source →" link under the filter sidebar on each
+region page, and — only when articles really are missing because they are
+unclassified — a note above the category grid stating how many and linking there.
+A full `python run.py` makes that note disappear.
+
+> This section exists because of a real bug. The original logic only fell back to
+> an outlet listing when *nothing* in a region was classified — but classifications
+> persist in the database, so after the first AI run the fallback never fired again.
+> In the resulting mixed state, unclassified articles were invisible everywhere on
+> the site: 1028 of them (38% of the window) were fetched but unreachable. A
+> regression test now pins this: every article in the window must be findable in
+> some page under `output/`.
 
 ### Auditing what got filtered out
 

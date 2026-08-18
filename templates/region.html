@@ -20,9 +20,13 @@
   </header>
 
   <div class="region-body">
-    {{ m.srcbar(media) }}
+    <div class="side-col">
+      {{ m.srcbar(media) }}
+      <a class="side-link" href="{{ source_link }}">{{ m.t('按来源浏览 →', 'Browse by source →') }}</a>
+    </div>
 
     <main class="region-main">
+    {{ m.unclassified_note(n_unclassified, source_link) }}
     {% if cards %}
       <div class="cat-grid">
         {% for c in cards %}
@@ -43,24 +47,10 @@
         m.t('已隐藏全部来源，请在左侧至少勾选一家媒体。',
             'All sources are hidden — tick at least one on the left.') }}</p>
 
-    {% elif sources %}
-      <p class="empty">{{
-        m.t('尚未做 AI 分类，先按媒体浏览（运行 python run.py 生成分类与汇总）。',
-            'Not classified yet — browsing by outlet. Run python run.py to generate categories and summaries.') }}</p>
-      <div class="cat-grid">
-        {% for s in sources %}
-        <section class="cat-card">
-          <div class="cat-title">{{ m.t(s.name, s.name_en) }}<span class="count">{{ s.articles|length }}</span></div>
-          <ul class="titles">
-            {% for a in s.articles[:8] %}
-            <li data-source="{{ a.source }}" data-trivial="{{ 1 if a.trivial else 0 }}">{{ m.title_block(a) }}{{ m.meta_line(a) }}</li>
-            {% endfor %}
-          </ul>
-        </section>
-        {% endfor %}
-      </div>
-
     {% else %}
+      {# 窗口内一篇都没有。曾经这里还有一个「按媒体回退」分支，但它被 if not cards
+         卡死、实际从不触发，且卡片缺 data-counts 会被 srcfilter 把徽章刷成 0。
+         现在按来源页是常驻的，回退分支没有存在意义，已删除。 #}
       <p class="empty">{{ m.t('过去 %d 小时暂无%s。'|format(window_hours, label),
                               'No %s in the past %d hours.'|format(label_en, window_hours)) }}</p>
     {% endif %}

@@ -1,0 +1,64 @@
+{% import "_macros.html" as m %}<!doctype html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-en="{{ label_en }} by source · BriefMe">{{ label }}按来源 · 每日新闻</title>
+  {{ m.lang_boot() }}
+  <link rel="stylesheet" href="style.css">
+</head>
+{# data-region 与地区页一致：筛选栏的勾选状态两页共享，切来切去不会丢 #}
+<body data-region="{{ region }}">
+  <header class="site">
+    <nav class="crumb">
+      <a href="index.html">{{ m.t('首页', 'Home') }}</a> ›
+      <a href="{{ region_file(region) }}">{{ m.t(label, label_en) }}</a> ›
+      <span>{{ m.t('按来源', 'By source') }}</span>
+      <span class="nav-actions">{{ m.trivial_btn() }}{{ m.lang_btn() }}</span>
+    </nav>
+    <h1>{{ m.t(label + '·按来源', label_en + ' · by source') }}</h1>
+    <p class="meta">
+      {{ m.t('过去 %d 小时 · 共'|format(window_hours),
+             'past %d hours · '|format(window_hours)) }}
+      <span id="artCount">{{ total }}</span>{{ m.t(' 篇 · 更新于', ' articles · updated') }}
+      {{ m.time_tag(generated_utc) }}
+    </p>
+    {# 这一页刻意不做任何筛除：窗口内的每一篇都在，包括还没被 AI 分类的。
+       分类页只能显示已分类的，所以「抓到了却看不到」只有在这里才兜得住。 #}
+    <p class="meta win-note">{{ m.t(
+      '本页按媒体罗列窗口内的全部报道，不依赖 AI 分类——尚未分类的文章也在其中。',
+      'Every report in the window, grouped by outlet. This page does not depend on AI '
+      'classification, so articles that have not been classified yet still appear here.') }}</p>
+    {{ m.window_note() }}
+  </header>
+
+  <div class="region-body">
+    {{ m.srcbar(media) }}
+
+    <main class="region-main">
+    {% for s in sources %}
+    <section class="src-group" data-src-section data-source="{{ s.id }}">
+      <h2 class="jr-jh">
+        {{ m.t(s.name, s.name_en) }}<span class="count">{{ s.articles|length }}</span>
+      </h2>
+      <ul class="titles">
+        {% for a in s.articles %}
+        <li data-source="{{ a.source }}" data-trivial="{{ 1 if a.trivial else 0 }}"
+        >{{ m.title_block(a) }}{{ m.meta_line(a) }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% else %}
+    <p class="empty">{{ m.t('过去 %d 小时暂无报道。'|format(window_hours),
+                            'No reports in the past %d hours.'|format(window_hours)) }}</p>
+    {% endfor %}
+    <p class="empty" id="allHidden" hidden>{{
+      m.t('已取消勾选全部来源。', 'All sources are unchecked.') }}</p>
+    </main>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="localtime.js"></script>
+  <script src="srcfilter.js"></script>
+</body>
+</html>

@@ -109,6 +109,21 @@ var e=document.documentElement;e.setAttribute('data-lang','en');e.lang='en';}}ca
 {%- endif %}
 {% endmacro %}
 
+{# 未分类提示。分类页只能显示已分类的文章，跑过 --no-ai / --manual 之后
+   窗口里会有一批尚未分类的稿子进不了任何分类——不说明的话，用户只会看到
+   「抓了几百条但页面上没有」。n 归零时整条不渲染，跑完整流程后自动消失。 #}
+{% macro unclassified_note(n, link) %}
+{%- if n %}
+<p class="meta unc-note">
+  {{ t('本页按 AI 分类展示。另有 ', 'This page is organised by AI category. Another ') }}
+  <strong>{{ n }}</strong>
+  {{ t(' 篇尚未分类，未出现在下面的分类中 —— ',
+        ' articles have not been classified yet and do not appear below — ') }}
+  <a href="{{ link }}">{{ t('按来源浏览 →', 'browse by source →') }}</a>
+</p>
+{%- endif %}
+{% endmacro %}
+
 {# 「隐藏琐碎新闻」开关，作为 mainnav 的 extra 传入 #}
 {% macro trivial_btn() %}
 <button type="button" class="trivial-btn" id="trivialToggle" aria-pressed="false">{{
