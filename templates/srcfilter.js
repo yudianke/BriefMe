@@ -56,10 +56,15 @@
     // ---- 地区页：逐条显隐预览、更新计数徽章、隐藏空分类 ----
     cards.forEach(function (card) {
       var shown = 0;
+      // 卡片里渲染的预览条数多于要显示的：除了「该分类最新 N 条」，还额外
+      // 塞了每家媒体各自的最新几条（默认隐藏）。这里只放出当前筛选下最新的
+      // limit 条——条目本身按时间倒序渲染，所以顺着取就是最新的。
+      // 这样勾选一家原本没进前 N 的媒体时，卡片不会变成「徽章 26 条、预览 0 条」。
+      var limit = +(card.dataset.preview || 6);
       [].forEach.call(card.querySelectorAll('li[data-source]'), function (li) {
         var ok = !!set[li.dataset.source] && !(trivialOn && li.dataset.trivial === '1');
-        li.hidden = !ok;
-        if (ok) shown++;
+        if (ok && shown < limit) { li.hidden = false; shown++; }
+        else { li.hidden = true; }
       });
       // 徽章用该分类下各家媒体的真实条数累加，而不是预览里可见的条数
       var total = 0;

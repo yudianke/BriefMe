@@ -30,7 +30,8 @@
     {% if cards %}
       <div class="cat-grid">
         {% for c in cards %}
-        <section class="cat-card" data-counts='{{ c.src_counts }}' data-trivial-counts='{{ c.trivial_counts }}'>
+        <section class="cat-card" data-preview="{{ preview_per_cat }}"
+                 data-counts='{{ c.src_counts }}' data-trivial-counts='{{ c.trivial_counts }}'>
           <a class="cat-title" href="{{ c.link }}">{{ m.t(c.category, c.category_en) }}<span
              class="count">{{ c.count }}</span></a>
           <ul class="titles">

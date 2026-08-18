@@ -26,7 +26,16 @@ OUT = ROOT / "output"
 TEMPLATES = ROOT / "templates"
 LOGOS = ROOT / "logos"
 
-PREVIEW_PER_CAT = 6   # 分类网格里每个分类预览条数
+PREVIEW_PER_CAT = 6   # 分类网格里每个分类**同时显示**的预览条数
+# 每个分类里额外为**每家媒体**多渲染几条备用预览（默认隐藏，由 srcfilter.js 挑）。
+#
+# 为什么需要：预览过去是「该分类最新的 6 条」的固定切片，前端筛选只能隐藏、
+# 不能凭空变出条目。于是勾选一家没进前 6 的媒体时，卡片徽章写着 26 条，
+# 下面却一条预览都没有。把每家最新几条也一并渲染进去，筛选后才总有东西可显示。
+#
+# 同时取「最新 N 条」和「最新 N 条非琐碎」：只取前者的话，某家最新几条恰好
+# 全是琐碎新闻时，打开「隐藏琐碎新闻」又会退回空卡片。
+PREVIEW_PER_SRC = 3
 
 
 def cat_filename(region: str, category: str) -> str:
@@ -123,6 +132,7 @@ def _env() -> Environment:
         autoescape=select_autoescape(["html"]),
     )
     env.globals["window_hours"] = WINDOW_HOURS
+    env.globals["preview_per_cat"] = PREVIEW_PER_CAT
     env.globals["region_nav"] = REGION_NAV
     env.globals["region_nav_en"] = REGION_NAV_EN
     env.globals["region_file"] = region_filename
@@ -325,12 +335,25 @@ def render(hours: int = WINDOW_HOURS) -> None:
                   "name_en": names_en.get(s) or per_name[s], "count": n}
                  for s, n in per_src.items()),
                 key=lambda x: -x["count"])
+            # 预览候选 = 全局最新若干条 ∪ 每家最新若干条 ∪ 每家最新若干条非琐碎。
+            # 全部按时间倒序渲染，前端只显示其中「当前筛选下最新的 PREVIEW_PER_CAT 条」，
+            # 所以全选时的观感与过去完全一致，只是多了些默认隐藏的备用条目。
+            by_source: dict[str, list] = {}
+            for a in arts:
+                by_source.setdefault(a["source"], []).append(a)
+            keep: set[str] = {a["id"] for a in arts[:PREVIEW_PER_CAT]}
+            for lst in by_source.values():
+                keep |= {a["id"] for a in lst[:PREVIEW_PER_SRC]}
+                keep |= {a["id"] for a in
+                         [x for x in lst if not x["trivial"]][:PREVIEW_PER_SRC]}
+            preview = [a for a in arts if a["id"] in keep]   # arts 已按时间倒序
+
             cards.append({
                 "category": cat,
                 "category_en": CATEGORIES_EN.get(cat, cat),
                 "count": counts[cat],
                 "link": cat_filename(region, cat),
-                "articles": arts[:PREVIEW_PER_CAT],
+                "articles": preview,
                 "src_counts": json.dumps(per_src, ensure_ascii=False),
                 "trivial_counts": json.dumps(per_trivial, ensure_ascii=False),
             })
