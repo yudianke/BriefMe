@@ -18,7 +18,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from . import db
 from .models import (CATEGORIES, CATEGORIES_EN, REGION_NAV, REGION_NAV_EN, REGIONS,
-                     SOURCE_LOGOS, WINDOW_HOURS)
+                     SOURCE_LOGOS, SOURCE_WINDOW_HOURS, WINDOW_HOURS)
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output"
@@ -127,7 +127,30 @@ def _env() -> Environment:
     # 媒体英文名：查不到就返回空串，模板会退回只显示中文名
     names_en = source_names_en()
     env.globals["source_en"] = lambda sid: names_en.get(sid, "")
+    env.globals["long_window_sources"] = long_window_sources()
     return env
+
+
+def long_window_sources() -> list[dict]:
+    """窗口比默认更长的源，供页面上加一句说明（见 _macros.window_note）。
+
+    名字从 sources.yaml 现取，避免和源清单各写一份而对不上。
+    """
+    try:
+        from .fetch import load_sources
+        by_id = {s["id"]: s for s in load_sources()}
+    except Exception:
+        by_id = {}
+    out = []
+    for sid, hours in SOURCE_WINDOW_HOURS.items():
+        if hours <= WINDOW_HOURS:
+            continue
+        s = by_id.get(sid)
+        if not s:
+            continue
+        out.append({"name": s["name"], "name_en": s.get("name_en") or s["name"],
+                    "hours": hours})
+    return out
 
 
 def render(hours: int = WINDOW_HOURS) -> None:

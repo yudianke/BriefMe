@@ -31,6 +31,14 @@ CATEGORIES_EN = {
 REGIONS_EN = {"china": "China", "world": "World"}
 REGION_NAV_EN = {"china": "China News", "world": "World News"}
 
+# 个别源出稿频率远低于日报，24 小时窗口下页面上只有个位数条目。
+# 这里按源单独放宽**展示与 AI 输入**的窗口（见 db._window_sql）；只会放宽，不会收紧。
+#
+# economist：周刊。实测其 /latest feed 24 小时内 10 条、48 小时内 17 条。
+# （另外实测过 13 个板块 feed 合并去重后与 /latest 完全相同，加 feed 无效，
+#   /topics/* 页面则根本没有 RSS，返回 403。）
+SOURCE_WINDOW_HOURS: dict[str, int] = {"economist": 48}
+
 # 需要生成中文译题的语言（英文源保留原标题，另存 title_zh）
 TRANSLATE_LANGS = {"en"}
 # 需要生成英文译题的语言（中文源保留原标题，另存 title_en；仅 --en 模式下生成）

@@ -10,7 +10,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .models import DDL, WINDOW_HOURS, Article
+from .models import DDL, SOURCE_WINDOW_HOURS, WINDOW_HOURS, Article
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "news.db"
 
@@ -50,6 +50,28 @@ def window_cutoff(hours: int = WINDOW_HOURS) -> str:
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
+def _window_sql(hours: int = WINDOW_HOURS, alias: str = "") -> tuple[str, list]:
+    """窗口条件片段 + 参数。个别源用更长的窗口，见 models.SOURCE_WINDOW_HOURS。
+
+    抽出来是因为「窗口内」这个条件散落在八处查询里，逐个改必然漏掉一两个，
+    而漏掉的那个会让放宽窗口的源在某一环节凭空消失（比如没被分类，于是进不了分类页）。
+
+    两条硬性约束：
+      - **只放宽、不收紧**：用 OR 拼接，某源即便配了比默认更短的窗口也不会被截掉；
+      - **自带最外层括号**：调用处多为 `WHERE region=? AND <此片段>`，
+        少了括号 OR 会吃掉前面的 region 条件，把别的地区漏进来。
+    """
+    p = f"{alias}." if alias else ""
+    sql = f"({p}published_at >= ?"
+    params: list = [window_cutoff(hours)]
+    for sid, h in SOURCE_WINDOW_HOURS.items():
+        if h <= hours:            # 不比默认窗口长就没必要加分支
+            continue
+        sql += f" OR ({p}source = ? AND {p}published_at >= ?)"
+        params += [sid, window_cutoff(h)]
+    return sql + ")", params
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -80,8 +102,8 @@ def upsert_articles(articles: list[Article]) -> int:
 def recent_articles(hours: int = WINDOW_HOURS, region: str | None = None,
                     limit: int | None = None) -> list[sqlite3.Row]:
     """窗口内文章，按发布时间从新到旧。"""
-    sql = "SELECT * FROM articles WHERE published_at >= ?"
-    params: list = [window_cutoff(hours)]
+    wsql, params = _window_sql(hours)
+    sql = f"SELECT * FROM articles WHERE {wsql}"
     if region:
         sql += " AND region = ?"
         params.append(region)
@@ -95,11 +117,12 @@ def recent_articles(hours: int = WINDOW_HOURS, region: str | None = None,
 def recent_by_category(region: str, category: str,
                        hours: int = WINDOW_HOURS, limit: int | None = None) -> list[sqlite3.Row]:
     """窗口内某地区某分类的文章，从新到旧。"""
-    sql = """SELECT a.* FROM articles a
+    wsql, wparams = _window_sql(hours, "a")
+    sql = f"""SELECT a.* FROM articles a
              JOIN article_categories c ON c.article_id = a.id
-             WHERE a.region=? AND c.category=? AND a.published_at>=?
+             WHERE a.region=? AND c.category=? AND {wsql}
              ORDER BY a.published_at DESC"""
-    params: list = [region, category, window_cutoff(hours)]
+    params: list = [region, category, *wparams]
     if limit:
         sql += f" LIMIT {int(limit)}"
     with connect() as conn:
@@ -108,13 +131,14 @@ def recent_by_category(region: str, category: str,
 
 def category_counts(region: str, hours: int = WINDOW_HOURS) -> dict[str, int]:
     """窗口内各分类计数（用于分类网格）。"""
+    wsql, wparams = _window_sql(hours, "a")
     with connect() as conn:
         rows = conn.execute(
-            """SELECT c.category cat, COUNT(*) n FROM articles a
+            f"""SELECT c.category cat, COUNT(*) n FROM articles a
                JOIN article_categories c ON c.article_id = a.id
-               WHERE a.region=? AND a.published_at>=?
+               WHERE a.region=? AND {wsql}
                GROUP BY c.category""",
-            (region, window_cutoff(hours)),
+            (region, *wparams),
         ).fetchall()
     return {r["cat"]: r["n"] for r in rows}
 
@@ -139,7 +163,7 @@ def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
     会反复烧额度，而多出三五篇通常改变不了纪要的内容。因此加一个比例门槛，
     只有素材确实换掉一部分才值得重写。
     """
-    cutoff = window_cutoff(hours)
+    wsql, wparams = _window_sql(hours, "a")
     with connect() as conn:
         # 取每个分类**最近一次**纪要，而不是「今天的」。
         # 纪要的 date 是 UTC 日历日，内容窗口却是滚动 24 小时：若按日期查，
@@ -150,10 +174,10 @@ def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
             """SELECT region, category, MAX(generated_at) AS generated_at
                FROM summaries GROUP BY region, category""")}
         rows = conn.execute(
-            """SELECT a.region, c.category, a.fetched_at
+            f"""SELECT a.region, c.category, a.fetched_at
                FROM articles a JOIN article_categories c ON c.article_id = a.id
-               WHERE a.published_at >= ?""",
-            (cutoff,),
+               WHERE {wsql}""",
+            wparams,
         ).fetchall()
     total: dict[tuple[str, str], int] = {}
     fresh: dict[tuple[str, str], int] = {}
@@ -174,13 +198,14 @@ def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
 
 def untranslated(hours: int = WINDOW_HOURS) -> list[sqlite3.Row]:
     """窗口内需要中文译题、且尚未翻译的外文文章。"""
+    wsql, wparams = _window_sql(hours)
     with connect() as conn:
         return conn.execute(
-            """SELECT * FROM articles
-               WHERE published_at>=? AND lang!='zh'
+            f"""SELECT * FROM articles
+               WHERE {wsql} AND lang!='zh'
                  AND (title_zh IS NULL OR title_zh='')
                ORDER BY published_at DESC""",
-            (window_cutoff(hours),),
+            wparams,
         ).fetchall()
 
 
@@ -197,13 +222,14 @@ def untranslated_en(hours: int = WINDOW_HOURS) -> list[sqlite3.Row]:
     与 untranslated() 完全对称：那边是「外文原题 -> 中文译题」，
     这边是「中文原题 -> 英文译题」。两边都只新增列，不动 title。
     """
+    wsql, wparams = _window_sql(hours)
     with connect() as conn:
         return conn.execute(
-            """SELECT * FROM articles
-               WHERE published_at>=? AND lang='zh'
+            f"""SELECT * FROM articles
+               WHERE {wsql} AND lang='zh'
                  AND (title_en IS NULL OR title_en='')
                ORDER BY published_at DESC""",
-            (window_cutoff(hours),),
+            wparams,
         ).fetchall()
 
 
@@ -269,12 +295,13 @@ def unjudged_trivial(hours: int = WINDOW_HOURS) -> list[sqlite3.Row]:
     """
     with connect() as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS trivial_judged (article_id TEXT PRIMARY KEY)")
+        wsql, wparams = _window_sql(hours, "a")
         return conn.execute(
-            """SELECT a.* FROM articles a
+            f"""SELECT a.* FROM articles a
                LEFT JOIN trivial_judged j ON j.article_id = a.id
-               WHERE a.published_at >= ? AND j.article_id IS NULL
+               WHERE {wsql} AND j.article_id IS NULL
                ORDER BY a.published_at DESC""",
-            (window_cutoff(hours),),
+            wparams,
         ).fetchall()
 
 
@@ -354,14 +381,15 @@ def top_events(region: str, limit: int = 5, hours: int = WINDOW_HOURS) -> list[d
             "SELECT * FROM events WHERE region=? AND date=? ORDER BY rank LIMIT ?",
             (region, today_key(), limit),
         ).fetchall()
+        wsql, wparams = _window_sql(hours, "a")
         out = []
         for e in evs:
             arts = conn.execute(
-                """SELECT a.* FROM articles a
+                f"""SELECT a.* FROM articles a
                    JOIN event_articles ea ON ea.article_id=a.id
-                   WHERE ea.event_id=? AND a.published_at>=?
+                   WHERE ea.event_id=? AND {wsql}
                    ORDER BY a.published_at DESC""",
-                (e["id"], window_cutoff(hours)),
+                (e["id"], *wparams),
             ).fetchall()
             if arts:
                 # 按媒体去重，每家只留最新一篇。首页要展示的是「这件事有几家在报」，

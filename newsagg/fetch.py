@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 
 from . import db
-from .models import Article
+from .models import SOURCE_WINDOW_HOURS, Article
 
 CONFIG = Path(__file__).resolve().parent.parent / "config" / "sources.yaml"
 UA = "Mozilla/5.0 (personal-news-aggregator; RSS reader)"
@@ -198,7 +198,11 @@ def fetch_source(src: dict, hours: int = 24, stats: dict | None = None) -> list[
     else:
         urls = src["feeds"]
 
-    cutoff = datetime.now(timezone.utc).timestamp() - hours * 3600
+    # 出稿频率低的源用更长的窗口抓（见 models.SOURCE_WINDOW_HOURS）。
+    # 必须和展示侧 db._window_sql 用同一张表，否则会出现「抓回来了但页面不显示」
+    # 或反过来「页面要显示但根本没抓」的错位。
+    src_hours = max(hours, SOURCE_WINDOW_HOURS.get(src["id"], 0))
+    cutoff = datetime.now(timezone.utc).timestamp() - src_hours * 3600
     now_iso = datetime.now(timezone.utc).isoformat()
     out: list[Article] = []
     seen: set[str] = set()

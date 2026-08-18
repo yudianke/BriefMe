@@ -66,6 +66,19 @@ var e=document.documentElement;e.setAttribute('data-lang','en');e.lang='en';}}ca
 </nav>
 {% endmacro %}
 
+{# 窗口例外说明。个别周刊出稿太少，单独用了更长的窗口（见 models.SOURCE_WINDOW_HOURS），
+   不说明的话页头写着「过去 24 小时」却混着两天前的稿子，看起来像 bug。 #}
+{% macro window_note() %}
+{%- if long_window_sources %}
+<p class="meta win-note">{{ t('注：', 'Note: ') }}
+  {%- for s in long_window_sources %}{% if not loop.first %}、{% endif %}
+  {{ t(s.name, s.name_en) }}{% endfor %}
+  {{ t('出稿频率低，单独按过去 %d 小时收录。'|format(long_window_sources[0].hours),
+        'publish infrequently and are included over the past %d hours instead.'|format(long_window_sources[0].hours)) }}
+</p>
+{%- endif %}
+{% endmacro %}
+
 {# 「隐藏琐碎新闻」开关，作为 mainnav 的 extra 传入 #}
 {% macro trivial_btn() %}
 <button type="button" class="trivial-btn" id="trivialToggle" aria-pressed="false">{{

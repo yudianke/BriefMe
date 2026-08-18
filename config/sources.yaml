@@ -151,8 +151,14 @@ sources:
     query: "site:cnn.com when:1d"
     gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
 
-  # 周刊性质，出稿频率低：/latest 最新，其余分区多为数日前的稿子，
-  # 一次吐 300 条含大量旧稿，由 fetch 的 24h published_at 过滤兜底。
+  # 周刊性质，出稿频率低。实测（13 个 feed 全量比对）：
+  #   /latest 是所有板块 feed 的严格超集——24h/48h/7d 三个窗口下，
+  #   把 united-states、international、finance-and-economics、china、business、
+  #   britain、europe、middle-east-and-africa、science-and-technology、leaders、
+  #   culture、the-world-this-week 全部并进来，独有增量都是 0 条。
+  #   因此只留 /latest；多配的板块 feed 每轮白解析 900 条、多 3 次 HTTP。
+  #   （另：economist.com/topics/* 那些页面没有 RSS，请求返回 403。）
+  # 它 24h 内只有约 10 条，故在 models.SOURCE_WINDOW_HOURS 里单独放宽到 48h（约 17 条）。
   - id: economist
     name: 经济学人
     name_en: The Economist
@@ -161,9 +167,6 @@ sources:
     method: rss
     feeds:
       - https://www.economist.com/latest/rss.xml
-      - https://www.economist.com/united-states/rss.xml
-      - https://www.economist.com/international/rss.xml
-      - https://www.economist.com/finance-and-economics/rss.xml
     gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
 
   - id: nbcnews

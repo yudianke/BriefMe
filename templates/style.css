@@ -20,6 +20,7 @@ a { color: var(--link); }
 header.site { padding: 26px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 header.site h1 { margin: 0 0 4px; font-size: 27px; letter-spacing: -.01em; }
 .meta { color: var(--muted); font-size: 13px; margin: 2px 0 12px; }
+.win-note { font-size: 12px; margin: 8px 0 0; opacity: .75; }
 /* 允许换行：窄屏放不下时按钮组整体掉到第二行，
    而不是把导航项压成一字一行的竖条 */
 .mainnav { display: flex; gap: 6px; flex-wrap: wrap; row-gap: 8px; }
