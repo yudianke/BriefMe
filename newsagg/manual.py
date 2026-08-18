@@ -73,6 +73,12 @@ def export(en: bool = False) -> dict:
     # 残留的旧文件会被下面的 glob 收进清单，让助手去做一份本轮并不需要的工作。
     for old in MANUAL.glob("0*.md"):
         old.unlink()
+    # 上一轮的 results.json 也要清掉：README 里让用户跑
+    # `manual load manual/results.json`，助手若没写出新的，那条命令会把**昨天的**
+    # 结果又回写一遍，看上去成功、实际什么都没更新。宁可让它因文件不存在而报错。
+    stale = MANUAL / "results.json"
+    if stale.exists():
+        stale.unlink()
     counts = {}
 
     # 1. 翻译

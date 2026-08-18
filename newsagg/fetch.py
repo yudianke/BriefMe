@@ -94,7 +94,20 @@ JUNK_TITLE_PATTERNS = [
     r"^CNN\.com\s*[-–—]\s*Transcripts",
     r"^CNN Transcripts for ",
     r"^(Content|Videos|Sitemap)\b.*\bCNN$",
-    r"^CNN (Newsroom|This Morning|NewsNight)\b",
+    r"^CNN (Newsroom|This Morning|NewsNight|News Central|Live Event|HEALTH)\b",
+    r"^CNN's \w",                                          # CNN's Reliable Sources 等节目名
+    r"\s[-–—]\s*CNN\s*[-–—]\s*CNN\s*$",                    # sunday spotlight - CNN - CNN
+    r"^[\w' ]{1,24}\s>\s",                                 # 站点面包屑：food > restaurants
+    # Reuters 的人物/话题标签页：「<人名> News | Today's Latest Stories - reuters.com」。
+    # 不能锚 $：后面还跟着 Google News 加的「- reuters.com」后缀。
+    r"\|\s*Today'?s Latest Stories\b",
+    # CNN 自家的新闻稿（宣传自己要播什么），不是新闻
+    r"\s[-–—]\s*CNN Press Room\s*$",
+    r"^CNN\.com\s+QuickVote",
+    # 财新的站内功能页与作者专栏索引页
+    r"^历史搜索\b",
+    r"_观点频道_",
+    r"^财新一线\s*[-–—]",
     r"^Special Bonus\s*[-–—]\s*Introducing:",
     r"^Introducing:\s",
     # 节目名「The <栏目> with <主持人> - CNN」。两段都必须限长：不限长会撞上正文里的
@@ -128,6 +141,17 @@ _TAG_SUFFIXES = [
     # 最短的真新闻是 3 词（Washington’s Mali gamble），中间没有重叠。
     (re.compile(r"\s[-–—|]\s*Politico\s*$", re.I), 2,
      "<Politico 短栏目页：去掉「- Politico」后 ≤2 词且无标点>"),
+    # Google News 有时用域名而不是媒体名作后缀，同一批栏目页会以两种形式出现，
+    # 只配一种就会漏掉一半（实测漏了 20 条，全都进了翻译与分类队列）。
+    # 域名形式的阈值可以放到 3 词：实测 politico.com 后缀下 ≤3 词的全是栏目/话题页
+    # （Liquefied natural gas、Critical infrastructure），而同样 3 词的真新闻
+    # （Paging Micah Lasher）用的是「- Politico」形式，两者不重叠。
+    (re.compile(r"\s[-–—|]\s*politico\.com\s*$", re.I), 3,
+     "<Politico 短栏目页（域名后缀）：去掉「- politico.com」后 ≤3 词且无标点>"),
+    # CNN 只对**极短**的生效：CNN 的 4 词标题里有真新闻
+    # （Library devastated by flood），所以阈值必须压到 1 词。
+    (re.compile(r"\s[-–—|]\s*(CNN|cnn\.com)\s*$", re.I), 1,
+     "<CNN 单词标签页：去掉「- CNN」后仅 1 词>"),
 ]
 
 
