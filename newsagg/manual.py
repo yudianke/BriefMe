@@ -26,8 +26,8 @@ from .models import CATEGORIES, REGIONS, WINDOW_HOURS
 
 MANUAL = Path(__file__).resolve().parent.parent / "manual"
 TOP_N = 5
-CAND = 70          # Top5 候选条数
-PER_CAT = 24       # 每个分类送给 Claude 的报道条数
+CAND = 100         # Top5 候选条数（手动模式不花 API 额度，可比 events.CANDIDATES 宽）
+PER_CAT = 30       # 每个分类送给 Claude 的报道条数（同上，窗口 48h 后适度上调）
 TR_LIMIT = 400     # 单次导出的最大待翻译条数
 
 

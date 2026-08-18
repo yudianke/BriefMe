@@ -9,10 +9,16 @@
   if (!bar) return;
 
   var region = document.body.dataset.region || 'default';
+  // 期刊页筛的是「本」刊，新闻页筛的是「家」媒体——只是提示文案的量词不同。
+  // 用 data-region 判断而不是靠 sections.length：总览页没有 .jr-journal 区块，
+  // 但它同样是期刊页，量词也该是「本」。
+  var isJournals = region === 'journals';
   var KEY = 'newsagg.hidden.' + region;
   var boxes = [].slice.call(bar.querySelectorAll('.srcbox'));
   var cards = [].slice.call(document.querySelectorAll('.cat-card'));               // 地区页
   var articles = [].slice.call(document.querySelectorAll('article[data-source]')); // 分类页
+  // 学科页：论文按期刊分组成整块，筛选就是整块显隐（不像新闻那样逐条）
+  var sections = [].slice.call(document.querySelectorAll('.jr-journal[data-source]'));
   var tip = document.getElementById('srcTip');
   var allHidden = document.getElementById('allHidden');
   var toggleBtn = document.getElementById('srcToggle');
@@ -71,6 +77,15 @@
       card.hidden = total === 0 && shown === 0;
     });
 
+    // ---- 学科页：整块显隐期刊、累加可见论文数 ----
+    var visiblePapers = 0;
+    sections.forEach(function (sec) {
+      var ok = !!set[sec.dataset.source];
+      sec.hidden = !ok;
+      if (ok) visiblePapers += sec.querySelectorAll('.paper').length;
+    });
+    if (sections.length && artCount) artCount.textContent = visiblePapers;
+
     // ---- 分类页：逐篇显隐文章、更新标题栏总数 ----
     var visibleArts = 0;
     articles.forEach(function (art) {
@@ -78,15 +93,27 @@
       art.hidden = !ok;
       if (ok) visibleArts++;
     });
-    if (artCount) artCount.textContent = visibleArts;
+    if (artCount && !sections.length) artCount.textContent = visibleArts;
 
     if (allHidden) allHidden.hidden = on !== 0;
     // 这几处文本由 JS 现算，模板管不到，所以用 NA.setText 一次写入中英两份
     if (tip) {
       var sel = on + '/' + boxes.length;
       if (on === boxes.length) {
-        setText(tip, '显示全部 ' + boxes.length + ' 家',
-                     'Showing all ' + boxes.length + ' sources');
+        if (isJournals) {
+          setText(tip, '显示全部 ' + boxes.length + ' 本',
+                       'Showing all ' + boxes.length + ' journals');
+        } else {
+          setText(tip, '显示全部 ' + boxes.length + ' 家',
+                       'Showing all ' + boxes.length + ' sources');
+        }
+      } else if (sections.length) {
+        setText(tip, '已选 ' + sel + ' 本 · ' + visiblePapers + ' 篇',
+                     sel + ' journals · ' + visiblePapers + ' papers');
+      } else if (isJournals) {
+        var visJ = cards.filter(function (c) { return !c.hidden; }).length;
+        setText(tip, '已选 ' + sel + ' 本 · ' + visJ + ' 个学科',
+                     sel + ' journals · ' + visJ + ' disciplines');
       } else if (articles.length) {
         setText(tip, '已选 ' + sel + ' 家 · ' + visibleArts + ' 篇',
                      sel + ' sources · ' + visibleArts + ' articles');

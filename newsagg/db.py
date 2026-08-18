@@ -1,4 +1,4 @@
-"""SQLite 读写、去重，以及**统一的 24 小时滚动窗口**查询层。
+"""SQLite 读写、去重，以及**统一的滚动窗口**查询层（窗口长度见 models.WINDOW_HOURS）。
 
 规则（全局强制）：UI 与 AI 输入只能看到 `published_at`（媒体发布时间，UTC）
 落在「当前时间往前 WINDOW_HOURS 小时」内的新闻。数据库长期保留历史，
@@ -153,7 +153,7 @@ def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
       1. 今天还没写过；
       2. 写过，但之后新抓到的文章已占该分类的 RESUMMARIZE_RATIO 以上。
 
-    第 2 条是必要的：纪要按日期缓存，而文章窗口是滚动 24 小时，两者口径不同。
+    第 2 条是必要的：纪要按日期缓存，而文章窗口是滚动的，两者口径不同。
     同一天内文章可以整批换掉——早上的稿子滚出窗口、新稿子进来——若只看
     「今天写过没有」，纪要就会一直停在当天第一次运行时的素材上。
     用 fetched_at 而不是 published_at 比较：判断依据是「这篇有没有被那次汇总
@@ -166,7 +166,7 @@ def summaries_todo(hours: int = WINDOW_HOURS) -> list[tuple[str, str]]:
     wsql, wparams = _window_sql(hours, "a")
     with connect() as conn:
         # 取每个分类**最近一次**纪要，而不是「今天的」。
-        # 纪要的 date 是 UTC 日历日，内容窗口却是滚动 24 小时：若按日期查，
+        # 纪要的 date 是 UTC 日历日，内容窗口却是滚动的：若按日期查，
         # UTC 零点一过所有纪要就集体「消失」，阈值失去意义、当天第一次运行必然
         # 全量重算。对 UTC+8 用户那是每天早上 8 点。改看 generated_at 之后，
         # 是否重写只取决于素材换了多少，与日历翻页无关。

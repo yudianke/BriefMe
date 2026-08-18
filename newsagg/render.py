@@ -6,7 +6,7 @@
   cat-{region}-{i}.html 分类详情 —— AI 事件纪要 + 全部报道
 
 所有时间以 UTC ISO 写进 data-utc，由前端 JS 转成用户当地时间。
-所有取数一律走 db.recent_*（强制 24 小时滚动窗口）。
+所有取数一律走 db.recent_*（强制滚动窗口，长度见 models.WINDOW_HOURS）。
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def region_filename(region: str) -> str:
 def _summary(region: str, category: str) -> tuple[str, str]:
     """返回 (中文纪要, 英文纪要)。没跑过 --en 时英文回退成中文，页面不会空着。
 
-    取最近一次而非「今天的」：纪要按 UTC 日历日存，页面窗口却是滚动 24 小时，
+    取最近一次而非「今天的」：纪要按 UTC 日历日存，页面窗口却是滚动的，
     按日期查会让 UTC 零点一过页面上的纪要集体消失，直到重跑为止。
     是否需要重写由 db.summaries_todo() 按素材变化判断，与日历无关。
     """
@@ -177,7 +177,32 @@ def render_journals(env: Environment, generated_utc: str) -> None:
 
     jmeta = {j["id"]: j for j in journals}
     metrics = db.journal_metrics()
-    counts = db.paper_discipline_counts()
+
+    # 每个学科只取一次，总览页与学科页共用这一份。
+    # 必须共用：papers_by_discipline 会按单刊上限截断，而库里的原始计数不会——
+    # 两边各查各的，就会出现卡片徽章写 129、点进去只有 115 篇的对不上。
+    disc_rows = {d["id"]: db.papers_by_discipline(d["id"]) for d in disciplines}
+    per_journal = {
+        d: {jid: sum(1 for r in rows if r["journal_id"] == jid)
+            for jid in {r["journal_id"] for r in rows}}
+        for d, rows in disc_rows.items()}
+
+    def media_list(pairs) -> list[dict]:
+        """把 (期刊 id, 篇数) 序列聚成筛选栏要的清单，按篇数降序。
+
+        入参必须是**扁平的** (jid, n)：早先误把 jcounts.items() 直接传进来，
+        于是 jid 变成了 ("学科","期刊") 这个元组，渲染出的 checkbox value 是
+        "('ai', 'tpami')"，与卡片 data-counts 里的键对不上，所有徽章都变成 0。
+        """
+        agg: dict[str, int] = {}
+        for jid, n in pairs:
+            agg[jid] = agg.get(jid, 0) + n
+        out = []
+        for jid, n in agg.items():
+            j = jmeta.get(jid, {})
+            out.append({"id": jid, "name": j.get("name", jid),
+                        "name_en": j.get("name_en") or j.get("name", jid), "count": n})
+        return sorted(out, key=lambda x: -x["count"])
 
     def decorate(p: dict) -> dict:
         """补上期刊英文名与指标——这些来自配置和数据库，不经模型。"""
@@ -192,17 +217,20 @@ def render_journals(env: Environment, generated_utc: str) -> None:
 
     cards = []
     for d in disciplines:
-        n = counts.get(d["id"], 0)
-        if not n:
+        rows = disc_rows[d["id"]]
+        if not rows:
             continue
-        preview = db.papers_by_discipline(d["id"])[:PREVIEW_PER_CAT]
-        cards.append({"name": d["name"], "name_en": d["name_en"], "count": n,
+        per_j = per_journal[d["id"]]
+        cards.append({"name": d["name"], "name_en": d["name_en"], "count": len(rows),
                       "link": discipline_filename(d["id"]),
-                      "papers": [decorate(dict(p)) for p in preview]})
+                      "papers": [decorate(dict(p)) for p in rows[:PREVIEW_PER_CAT]],
+                      "src_counts": json.dumps(per_j, ensure_ascii=False)})
 
     (OUT / "journals.html").write_text(
         env.get_template("journals.html").render(
             picks=picks, cards=cards, n_journals=len(journals),
+            media=media_list((jid, n) for pj in per_journal.values()
+                             for jid, n in pj.items()),
             window_days=db.PAPER_WINDOW_DAYS, pick_days=db.PAPER_PICK_DAYS,
             generated_utc=generated_utc),
         encoding="utf-8")
@@ -210,7 +238,7 @@ def render_journals(env: Environment, generated_utc: str) -> None:
     tpl = env.get_template("discipline.html")
     n_pages = 0
     for d in disciplines:
-        rows = db.papers_by_discipline(d["id"])
+        rows = disc_rows[d["id"]]
         if not rows:
             continue
         by_journal: dict[str, list] = {}
@@ -221,6 +249,7 @@ def render_journals(env: Environment, generated_utc: str) -> None:
             j = jmeta.get(jid, {})
             m = metrics.get(jid, {})
             groups.append({
+                "id": jid,
                 "name": ps[0]["journal_name"],
                 "name_en": j.get("name_en") or ps[0]["journal_name"],
                 "mean_citedness": m.get("mean_citedness"), "h_index": m.get("h_index"),
@@ -228,14 +257,17 @@ def render_journals(env: Environment, generated_utc: str) -> None:
                 "lo": min(p["published_at"] for p in ps),
                 "hi": max(p["published_at"] for p in ps),
                 "papers": ps})
+        # 学科页的筛选栏用**页面上实际显示的**条数（已按单刊上限截断），
+        # 而不是库里的总数，否则勾掉一本刊后剩余数会对不上肉眼可见的条目。
         (OUT / discipline_filename(d["id"])).write_text(
             tpl.render(name=d["name"], name_en=d["name_en"], journals=groups,
+                       media=media_list((g["id"], len(g["papers"])) for g in groups),
                        total=len(rows), generated_utc=generated_utc),
             encoding="utf-8")
         n_pages += 1
     if cards:
         print(f"  学术期刊：总览页 + {n_pages} 个学科页"
-              f"（{sum(counts.values())} 篇论文）")
+              f"（{sum(len(r) for r in disc_rows.values())} 篇论文）")
 
 
 def render(hours: int = WINDOW_HOURS) -> None:

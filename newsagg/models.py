@@ -5,7 +5,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 # 全局滚动时间窗口（小时）。UI 与 AI 输入一律只看这个窗口内「媒体发布」的新闻。
-WINDOW_HOURS = 24
+WINDOW_HOURS = 48
 
 # 地区维度（由新闻源决定）
 REGIONS = {"china": "国内", "world": "国外"}
@@ -31,13 +31,13 @@ CATEGORIES_EN = {
 REGIONS_EN = {"china": "China", "world": "World"}
 REGION_NAV_EN = {"china": "China News", "world": "World News"}
 
-# 个别源出稿频率远低于日报，24 小时窗口下页面上只有个位数条目。
+# 个别源出稿频率远低于日报，默认窗口下页面上只有个位数条目。
 # 这里按源单独放宽**展示与 AI 输入**的窗口（见 db._window_sql）；只会放宽，不会收紧。
 #
-# economist：周刊。实测其 /latest feed 24 小时内 10 条、48 小时内 17 条。
-# （另外实测过 13 个板块 feed 合并去重后与 /latest 完全相同，加 feed 无效，
-#   /topics/* 页面则根本没有 RSS，返回 403。）
-SOURCE_WINDOW_HOURS: dict[str, int] = {"economist": 48}
+# 目前为空：窗口本身已是 48 小时，之前给经济学人单独放宽到 48h 的那条已成冗余
+# （_window_sql 会跳过不比默认更长的条目），故移除。机制保留——将来若再遇到
+# 出稿更稀疏的源（月刊、季刊），在这里加一行即可，展示与抓取两侧会同时生效。
+SOURCE_WINDOW_HOURS: dict[str, int] = {}
 
 # 需要生成中文译题的语言（英文源保留原标题，另存 title_zh）
 TRANSLATE_LANGS = {"en"}

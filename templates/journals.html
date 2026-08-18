@@ -18,7 +18,10 @@
     {{ m.mainnav('journals') }}
   </header>
 
-  <main class="jr-main">
+  <div class="jr-main region-body">
+    {{ m.srcbar(media, '期刊', 'Journals') }}
+
+    <main class="region-main">
     {# ---------- 两个五篇精选 ---------- #}
     {% if picks.sci or picks.ssci %}
     <div class="pick-cols">
@@ -63,12 +66,12 @@
     <h2 class="jr-sec">{{ m.t('按学科浏览', 'Browse by discipline') }}</h2>
     <div class="cat-grid">
       {% for c in cards %}
-      <section class="cat-card">
+      <section class="cat-card" data-counts='{{ c.src_counts }}'>
         <a class="cat-title" href="{{ c.link }}">{{ m.t(c.name, c.name_en) }}<span
            class="count">{{ c.count }}</span></a>
         <ul class="titles">
           {% for p in c.papers %}
-          <li>
+          <li data-source="{{ p.journal_id }}">
             <div class="t">
               <a class="t-main" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.title }}</a>
               {% if p.title_zh %}<span class="t-alt i18n-zh">{{ p.title_zh }}</span>{% endif %}
@@ -87,9 +90,13 @@
     <p class="empty">{{ m.t('暂无论文。运行 python run.py 抓取。',
                             'No papers yet — run python run.py to fetch.') }}</p>
     {% endif %}
-  </main>
+    <p class="empty" id="allHidden" hidden>{{
+      m.t('已取消勾选全部期刊。', 'All journals are unchecked.') }}</p>
+    </main>
+  </div>
 
   <script src="i18n.js"></script>
   <script src="localtime.js"></script>
+  <script src="srcfilter.js"></script>
 </body>
 </html>

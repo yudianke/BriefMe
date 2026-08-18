@@ -10,6 +10,12 @@ from . import db
 from .ai import complete, is_daily_limit
 from .models import CATEGORIES, REGIONS, WINDOW_HOURS
 
+# 每个分类送给模型的报道条数。窗口拉到 48 小时后分类内条数翻倍，
+# 沿用 30 会让纪要过度偏向最近几小时，故上调到 40。
+# 每次调用只处理一个分类，单次提示词很小，不像 events 那样顶着 TPM 上限，
+# 整轮多出约 8000 token（日额度的 4% 左右），换来的是纪要覆盖整个窗口。
+MATERIAL_PER_CAT = 40
+
 _SYSTEM = (
     "你是通讯社编辑，负责写当日事件纪要。\n"
     "**必须全部用简体中文输出**：即使原始材料是英文，也要用中文转述"
@@ -31,7 +37,7 @@ def summarize(hours: int = WINDOW_HOURS, force: bool = False) -> int:
     now_iso = db.utc_now()
     made = 0
     # 待写清单：没写过的，加上写过但之后又抓到新文章的（纪要按日期缓存、
-    # 窗口却是滚动 24 小时，不重算就会一直停在当天第一次运行的素材上）
+    # 窗口却是滚动的，不重算就会一直停在当天第一次运行的素材上）
     todo = None if force else set(db.summaries_todo(hours))
     for region in REGIONS:
         for cat in CATEGORIES:
@@ -43,7 +49,7 @@ def summarize(hours: int = WINDOW_HOURS, force: bool = False) -> int:
             listing = "\n".join(
                 f"- [{a['source_name']}] {a['title']}"
                 + (f"｜{a['excerpt'][:100]}" if a["excerpt"] else "")
-                for a in arts[:30]
+                for a in arts[:MATERIAL_PER_CAT]
             )
             user = (f"主题：{cat}（{REGIONS[region]}）\n"
                     f"过去 {hours} 小时各媒体报道：\n{listing}")

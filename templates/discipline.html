@@ -17,15 +17,19 @@
     </nav>
     <h1>{{ m.t(name, name_en) }}</h1>
     <p class="meta">
-      {{ m.t('%d 篇 · %d 本期刊 · 更新于'|format(total, journals|length),
-             '%d papers · %d journals · updated'|format(total, journals|length)) }}
+      <span id="artCount">{{ total }}</span>{{
+        m.t(' 篇 · %d 本期刊 · 更新于'|format(journals|length),
+            ' papers · %d journals · updated'|format(journals|length)) }}
       {{ m.time_tag(generated_utc) }}
     </p>
   </header>
 
-  <main class="jr-main">
+  <div class="jr-main region-body">
+    {{ m.srcbar(media, '期刊', 'Journals') }}
+
+    <main class="region-main">
     {% for j in journals %}
-    <section class="jr-journal">
+    <section class="jr-journal" data-source="{{ j.id }}">
       <h2 class="jr-jh">
         {{ m.t(j.name, j.name_en) }}
         <span class="count">{{ j.papers|length }}</span>
@@ -58,6 +62,8 @@
     {% else %}
     <p class="empty">{{ m.t('该学科暂无论文。', 'No papers in this discipline yet.') }}</p>
     {% endfor %}
+    <p class="empty" id="allHidden" hidden>{{
+      m.t('已取消勾选全部期刊。', 'All journals are unchecked.') }}</p>
 
     <p class="jr-note">{{ m.t(
       '「篇均被引」为 OpenAlex 两年篇均被引，**不是** Clarivate 影响因子（JIF）—— 后者是专有数据。'
@@ -68,9 +74,11 @@
       'holds: high-volume journals are fetched at most 200 most-recent records each, so their '
       'coverage is shorter than the window. Metadata comes from Crossref; abstracts are supplied '
       'by publishers and some journals provide none.') }}</p>
-  </main>
+    </main>
+  </div>
 
   <script src="i18n.js"></script>
   <script src="localtime.js"></script>
+  <script src="srcfilter.js"></script>
 </body>
 </html>

@@ -30,27 +30,7 @@
   </header>
 
   <div class="region-body">
-    {% if media %}
-    <aside class="srcbar" id="srcbar">
-      <div class="srcbar-head">
-        <span>{{ m.t('新闻来源', 'Sources') }}</span>
-        <button type="button" class="srcbar-toggle" id="srcToggle">{{
-          m.t('全不选', 'None') }}</button>
-      </div>
-      <ul class="srclist">
-        {% for s in media %}
-        <li>
-          <label>
-            <input type="checkbox" class="srcbox" value="{{ s.id }}" checked>
-            <span class="srcname">{{ m.t(s.name, s.name_en) }}</span>
-            <span class="srccount">{{ s.count }}</span>
-          </label>
-        </li>
-        {% endfor %}
-      </ul>
-      <p class="srcbar-tip" id="srcTip"></p>
-    </aside>
-    {% endif %}
+    {{ m.srcbar(media) }}
 
     <main class="region-main">
       <section class="summary">

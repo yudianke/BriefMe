@@ -2,7 +2,7 @@
 
 *[中文](README.md)*
 
-BriefMe pulls the **last 24 hours** of news from twenty-odd Chinese and
+BriefMe pulls the **last 48 hours** of news from twenty-odd Chinese and
 international outlets, has an AI sort it into categories and write short briefs,
 and generates a web page you can open offline. One command a day, five minutes
 to read. A button in the top-right switches the whole site between 中文 and English.
@@ -55,9 +55,13 @@ that takes no part in these stages — see the Journals section.)
 
 Some deliberate trade-offs:
 
-- **24 hours only.** The database keeps history, but the pages and the AI input
-  always use the last 24 hours, measured by the outlet's **publication** time,
-  not when the article was fetched.
+- **Rolling 48-hour window.** The database keeps history, but the pages and the
+  AI input always use the last 48 hours, measured by the outlet's **publication**
+  time, not when the article was fetched. 48 rather than 24 so the site reads the
+  same across time zones — check it before bed and after waking and you still
+  won't miss what was published while you slept. Change `WINDOW_HOURS` in
+  `newsagg/models.py` to adjust; Google News sources expand into several
+  `when:Nd` queries to match the window automatically (see below).
 - **Timestamps stored in UTC**, converted to your local time in the browser.
 - **Briefs are computed up front**, not on click, so navigation is instant and
   the AI cost stays predictable.
@@ -353,6 +357,16 @@ Edit `config/sources.yaml`:
 - `scrape` — when neither works, write a parser for it in `newsagg/scrapers.py`
 
 Then just run `python run.py`. No other code needs to change.
+
+> **Leave `when:1d` as-is in gnews queries — the program expands it.**
+> Google News returns at most ~100 results per query. With a 48-hour window the
+> obvious move is `when:2d`, but measured, that *reduces* recent coverage: Xinhua
+> returns 100 items under `when:1d`, all within 24h; under `when:2d` it is still
+> capped at 100 but spread over two days, leaving only 50 within 24h. So each
+> query is expanded into `when:1d`, `when:2d`, … and merged by URL: `1d`
+> guarantees density near the present, larger `when` values fill in the tail.
+> Measured for Xinhua: 155 unique items, 105 of them within 24h — better than
+> either query alone. Changing `WINDOW_HOURS` adjusts this automatically.
 
 ---
 

@@ -158,7 +158,7 @@ sources:
   #   culture、the-world-this-week 全部并进来，独有增量都是 0 条。
   #   因此只留 /latest；多配的板块 feed 每轮白解析 900 条、多 3 次 HTTP。
   #   （另：economist.com/topics/* 那些页面没有 RSS，请求返回 403。）
-  # 它 24h 内只有约 10 条，故在 models.SOURCE_WINDOW_HOURS 里单独放宽到 48h（约 17 条）。
+  # 它 24h 内只有约 10 条、48h 内约 17 条；全局窗口现已是 48h，无需再单独放宽。
   - id: economist
     name: 经济学人
     name_en: The Economist

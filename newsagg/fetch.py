@@ -1,4 +1,4 @@
-"""抓取：RSS 优先，Google News RSS 兜底。只取 24h 内标题+节选+链接。"""
+"""抓取：RSS 优先，Google News RSS 兜底。只取窗口内的标题+节选+链接。"""
 from __future__ import annotations
 
 import calendar
@@ -31,6 +31,34 @@ def build_gnews_url(query: str, locale: dict) -> str:
     q = urllib.parse.quote(query)
     return (f"https://news.google.com/rss/search?q={q}"
             f"&hl={locale['hl']}&gl={locale['gl']}&ceid={locale['ceid']}")
+
+
+_WHEN_RE = re.compile(r"when:(\d+)d")
+
+
+def gnews_urls(query: str, locale: dict, hours: int) -> list[str]:
+    """把一条 gnews 查询展开成覆盖整个窗口的若干条。
+
+    **Google News 每条查询最多只返回约 100 条**，这是本函数存在的唯一理由。
+    直觉上窗口变成 48 小时就把 when:1d 改成 when:2d 即可，但实测那样会**减少**
+    近 24 小时的覆盖：新华社 when:1d 拿到 100 条且全在 24h 内，改成 when:2d
+    同样是 100 条上限，却摊到了两天里，24h 内只剩 50 条。
+
+    因此改为**同时查 when:1d … when:Nd 并按 URL 去重合并**：
+    近处的密度由 when:1d 保证，远处的尾巴由更大的 when 补齐。
+    实测新华社 1d(100) ∪ 2d(100) = 155 条独有，其中 24h 内 105 条——
+    比单查任何一条都好。代价是每个 gnews 源多几次 HTTP，抓取本来就是并发的，可忽略。
+
+    查询里没写 when: 的源（如参考消息，Google 对其收录慢、加 when 会得到 0 条）
+    原样返回，不做任何改动。
+    """
+    m = _WHEN_RE.search(query)
+    if not m:
+        return [build_gnews_url(query, locale)]
+    need = max(1, -(-hours // 24))            # 向上取整到天
+    base = int(m.group(1))
+    days = sorted({base} | set(range(1, need + 1)))
+    return [build_gnews_url(_WHEN_RE.sub(f"when:{d}d", query), locale) for d in days]
 
 
 def _norm(s: str) -> str:
@@ -218,7 +246,7 @@ def fetch_source(src: dict, hours: int = 24, stats: dict | None = None) -> list[
         return drop_junk(fn(src, hours))
 
     if src["method"] == "gnews":
-        urls = [build_gnews_url(src["query"], src["gnews_locale"])]
+        urls = gnews_urls(src["query"], src["gnews_locale"], hours)
     else:
         urls = src["feeds"]
 
