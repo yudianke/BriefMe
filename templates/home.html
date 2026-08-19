@@ -39,8 +39,11 @@
             {# 计数与徽章都按「媒体」而非「文章」：排序权重看的是来源多样性，
                显示成篇数会让读者看不出这一点，同一家重复出现也没有信息量。 #}
             <div class="ev-srcs">
+              {# 英文要区分单复数：只有一家报道时是 outlet，写死 outlets 会出现「1 outlets」。
+                 中文没有这个问题，照旧。 #}
               <span class="ev-n">{{ m.t('%d 家报道'|format(e.n_sources),
-                                        '%d outlets'|format(e.n_sources)) }}</span>
+                                        '%d outlet'|format(e.n_sources) if e.n_sources == 1
+                                        else '%d outlets'|format(e.n_sources)) }}</span>
               {% for a in e.sources %}
               <a class="chip" href="{{ a.url }}" target="_blank" rel="noopener"
                  title="{{ a.title }}">{{ m.source_mark(a, 'xs') }}</a>
