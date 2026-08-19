@@ -353,7 +353,12 @@ def _is_rate_limit(e) -> bool:
 # 「当日额度耗尽」与「这一分钟发太快」是两回事，必须分开处理：
 # 前者要等到明天（Groq 免费档每模型每天 20 万 token），重试多少次都没用，
 # 干等只会让程序卡住半小时还什么都没做；后者等几秒就恢复。
-_DAILY_RE = re.compile(r"per day|\bTPD\b|\bRPD\b", re.I)
+# 只认「限流类型」那一段，不能宽松地搜 per day：Groq 的 429 正文末尾常带一句
+# 升级推广（…14,400 requests per day on the Dev Tier），宽松匹配会把**每分钟**
+# 限流误判成当日额度耗尽，调用方于是直接放弃剩下的批次。
+# 实测踩过：论文翻译因此在还剩 50 条时中止并打出「额度耗尽」，
+# 但当时本机日用量才 14.6 万 / 20 万，立刻重跑就顺利跑完。
+_DAILY_RE = re.compile(r"on (?:tokens|requests) per day|\((?:TPD|RPD)\)", re.I)
 _USAGE_RE = re.compile(r"Limit (\d+), Used (\d+)", re.I)
 
 
