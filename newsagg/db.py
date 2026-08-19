@@ -447,16 +447,21 @@ def upsert_papers(papers: list[dict]) -> int:
 
 
 def papers_by_discipline(discipline: str, days: int = PAPER_WINDOW_DAYS,
-                         per_journal: int = 60) -> list[sqlite3.Row]:
-    """某学科窗口内的论文，按刊分组后每刊只取最新的 per_journal 篇。
+                         per_journal: int | None = None) -> list[sqlite3.Row]:
+    """某学科窗口内的论文，按发表时间从新到旧。
 
-    必须按刊截断：Nature 90 天有近千篇，不截断会把同页的人口学 28 篇彻底淹掉。
+    per_journal=None（默认）表示**窗口内有多少给多少**，不做截断。
+    早先默认截断到每刊 60 篇，理由是「Nature 90 天近千篇会淹掉人口学的 28 篇」——
+    但学科页本来就按刊分块、且有按刊筛选栏，淹不淹取决于读者勾选谁，
+    截断反而让人看不到真实存量。需要限量的调用方（比如取预览）自己传值。
     """
     with connect() as conn:
         rows = conn.execute(
             """SELECT * FROM papers WHERE discipline=? AND published_at>=?
                ORDER BY published_at DESC""",
             (discipline, paper_cutoff(days))).fetchall()
+    if per_journal is None:
+        return rows
     out, seen = [], {}
     for r in rows:
         k = r["journal_id"]

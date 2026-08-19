@@ -39,7 +39,9 @@
           m.t('篇均被引', 'cited') }} {{ '%.1f'|format(j.mean_citedness) }}</span>
         {% endif %}
         {% if j.h_index %}<span class="jr-cite">h {{ j.h_index }}</span>{% endif %}
-        {# 高产刊会被单刊 200 篇的抓取上限截断，实际覆盖不足 90 天，这里如实标出 #}
+        {# 该刊在本站的实际收录区间。抓取已不设上限（窗口内有多少收多少），
+           这里仍标出来是因为各刊出稿密度差别极大：Nature 三个月九百多篇、
+           管理学会展望只有四篇，标出区间读者才知道自己在看多长的时间跨度。 #}
         <span class="jr-span">{{ j.lo[:10] }} ~ {{ j.hi[:10] }}</span>
       </h2>
       <ul class="paper-list">
@@ -67,12 +69,12 @@
 
     <p class="jr-note">{{ m.t(
       '「篇均被引」为 OpenAlex 两年篇均被引，**不是** Clarivate 影响因子（JIF）—— 后者是专有数据。'
-      '每本刊标注的是其在本站的实际收录区间：高产刊按每刊最新 200 篇抓取，覆盖天数会短于窗口。'
+      '本页收录窗口内该学科的全部论文，不做数量截断；每本刊标注其实际收录区间。'
       '元数据来自 Crossref，摘要由出版商提供，部分期刊未提供。',
       '“cited” is the OpenAlex 2-year mean citedness — **not** the Clarivate Journal Impact '
-      'Factor, which is proprietary. The range shown per journal is what this site actually '
-      'holds: high-volume journals are fetched at most 200 most-recent records each, so their '
-      'coverage is shorter than the window. Metadata comes from Crossref; abstracts are supplied '
+      'Factor, which is proprietary. This page lists every paper in the window for this '
+      'discipline, with no cap; the range shown per journal is what this site actually holds. '
+      'Metadata comes from Crossref; abstracts are supplied '
       'by publishers and some journals provide none.') }}</p>
     </main>
   </div>

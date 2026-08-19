@@ -28,13 +28,18 @@ _T_SYSTEM = (
 )
 
 
-def translate_papers(limit: int = TRANSLATE_PER_RUN) -> int:
-    """翻译论文标题。返回本轮完成条数。"""
+def translate_papers(limit: int | None = TRANSLATE_PER_RUN) -> int:
+    """翻译论文标题。返回本轮完成条数。
+
+    limit=None 表示**一次把积压全部翻完**（`--translate-all` 走这条路），
+    只在撞上当日额度上限时中止。日常流水线仍用 TRANSLATE_PER_RUN 节流，
+    免得论文把新闻的额度挤掉。
+    """
     total = db.papers_untranslated_count()
     if not total:
         print("  论文标题：无待翻译。")
         return 0
-    rows = db.papers_untranslated(limit)
+    rows = db.papers_untranslated(total if limit is None else limit)
     done = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
@@ -60,8 +65,10 @@ def translate_papers(limit: int = TRANSLATE_PER_RUN) -> int:
     left = db.papers_untranslated_count()
     if left:
         # 让积压可见：否则用户只会看到「翻译了 300 条」，不知道还差多少轮
-        print(f"  论文标题翻译 {done}/{total} 条，剩余 {left} 条，"
-              f"约再跑 {-(-left // max(limit, 1))} 轮补齐。")
+        tail = ("（额度耗尽，明日续）" if limit is None
+                else f"约再跑 {-(-left // max(limit, 1))} 轮补齐；"
+                     f"想一次翻完用 python -m newsagg.paperai --translate-all")
+        print(f"  论文标题翻译 {done}/{total} 条，剩余 {left} 条，{tail}")
     else:
         print(f"  论文标题翻译 {done} 条，已全部补齐。")
     return done
@@ -165,7 +172,11 @@ def pick_all(force: bool = False) -> int:
 
 if __name__ == "__main__":
     import sys
-    if "--translate" in sys.argv:
+    if "--translate-all" in sys.argv:
+        # 一次把积压全部翻完。首次放开抓取上限后有一两千条待译，
+        # 靠日常每轮 300 条要跑好几天，这个命令让你自己决定何时把额度花在这上面。
+        translate_papers(limit=None)
+    elif "--translate" in sys.argv:
         translate_papers()
     elif "--picks" in sys.argv:
         pick_all(force="--force" in sys.argv)

@@ -35,7 +35,7 @@ PREVIEW_PER_CAT = 6   # 分类网格里每个分类**同时显示**的预览条�
 #
 # 同时取「最新 N 条」和「最新 N 条非琐碎」：只取前者的话，某家最新几条恰好
 # 全是琐碎新闻时，打开「隐藏琐碎新闻」又会退回空卡片。
-PREVIEW_PER_SRC = 3
+PREVIEW_PER_SRC = 6
 
 
 def cat_filename(region: str, category: str) -> str:
@@ -194,8 +194,8 @@ def render_journals(env: Environment, generated_utc: str) -> None:
     metrics = db.journal_metrics()
 
     # 每个学科只取一次，总览页与学科页共用这一份。
-    # 必须共用：papers_by_discipline 会按单刊上限截断，而库里的原始计数不会——
-    # 两边各查各的，就会出现卡片徽章写 129、点进去只有 115 篇的对不上。
+    # 必须共用而不是各查各的：卡片徽章、筛选栏分项、学科页实际渲染条数
+    # 三者要对得上，来源不同就会出现「徽章写 129、点进去只有 115 篇」。
     disc_rows = {d["id"]: db.papers_by_discipline(d["id"]) for d in disciplines}
     per_journal = {
         d: {jid: sum(1 for r in rows if r["journal_id"] == jid)

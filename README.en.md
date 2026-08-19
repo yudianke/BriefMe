@@ -229,7 +229,8 @@ Records missing an abstract are topped up from [OpenAlex](https://openalex.org/)
 | Display window | 90 days | Quarterlies need it: *Demography* publishes 28 papers per 90 days, *Academy of Management Perspectives* 10. A 24-hour window would be empty most days |
 | Picks drawn from | 30 days | Over 90 days the list would barely change for months |
 | Fetch frequency | once per 24h | Papers do not update hourly |
-| Cap per journal | 200 most recent | *Nature* runs to ~1000 per 90 days and would bury *Demography*'s 28 on the same page. Each discipline page shows the journal's **actual** coverage range rather than claiming 90 days |
+| Title translation | 300 per run | Shares the daily quota with the news, so it is throttled by default. To clear the whole backlog at once: `python -m newsagg.paperai --translate-all` |
+| Cap per journal | **none** | Everything in the window is kept, via Crossref cursor paging. Discipline pages group by journal and can be filtered by journal, so a prolific journal cannot bury a small one. Each journal still shows its **actual** coverage range, because output density varies by two orders of magnitude |
 | Retention | 365 days | ~9,000 rows a year — nothing for SQLite |
 
 **This is a separate track from the news.** Papers live in their own `papers` table

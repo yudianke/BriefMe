@@ -14,7 +14,8 @@
 实测数据（2026-08，90 天窗口，用于解释下面几个常量的取值）：
   Nature 约 1050 条、Science 533、TPAMI 326、TNNLS 119，
   而 Demography 28、Social Work 14、管理学会展望 10、世界政治约 10。
-  量级差两个数量级，所以展示和候选池都必须按刊截断。
+  量级差两个数量级：展示不再截断（学科页按刊分块 + 可按刊筛选），
+  但 Top5 候选池仍按刊限量，否则 Nature 会把小刊挤出候选。
 """
 from __future__ import annotations
 
@@ -40,12 +41,12 @@ CROSSREF = "https://api.crossref.org/journals/{issn}/works"
 OPENALEX_SRC = "https://api.openalex.org/sources/issn:{issn}"
 OPENALEX_WORKS = "https://api.openalex.org/works"
 
-# Crossref 单次上限 1000。这里取 200 是刻意的：页面每刊最多展示 60 篇、
-# Top5 候选每刊只取 15 篇，200 篇最新的已经完全够用。
-# 高产刊（Nature/Science/TPAMI）会被这个上限截断，实际覆盖 35~76 天而非 90 天，
-# 所以学科页按刊标出各自的真实覆盖区间，不笼统写「90 天」。
-# 调大只会让库和翻译账单膨胀，不会改变页面上看得到的内容。
-ROWS_PER_JOURNAL = 200
+# 窗口内**有多少抓多少**：用游标翻页把 90 天内的全部条目取回来。
+# 早先只取最新 200 篇，实测 Nature 90 天有 1065 条却只入库 173 条、
+# Science 519 只入 186、TPAMI 242 只入 200——学科页显示的完全不是真实存量。
+ROWS_PER_PAGE = 500       # Crossref 单页上限 1000，取 500 兼顾响应体积与翻页次数
+MAX_PAGES = 12            # 安全阀：单刊最多翻这么多页（500×12=6000 篇，远超任何刊的 90 天量）
+                          # 只为防配置写错时无限翻页，正常绝不会触到
 WORKERS = 5               # 并发抓取的刊数。Crossref 礼貌池限速很宽，5 是保守值
 FETCH_EVERY_HOURS = 24    # 论文不按小时更新，一天抓一次足够
 TIMEOUT = 30
@@ -236,14 +237,39 @@ def fetch_journal(j: dict, days: int, stats: dict | None = None) -> list[dict]:
     # 按 created（建档时间）而不是 published 过滤与排序：published 的精度因出版商而异，
     # IEEE 系只给到年，用它过滤会把这几本刊整个漏掉（见 resolve_date）。
     # created 各家都是完整日期，口径统一。
-    params = urllib.parse.urlencode({
-        "filter": f"from-created-date:{since_str},type:journal-article",
-        "sort": "created", "order": "desc", "rows": ROWS_PER_JOURNAL,
-        "select": "title,abstract,author,published,created,DOI,container-title",
-    })
-    data = _get_json(f"{CROSSREF.format(issn=j['issn'])}?{params}")
-    if not data or "message" not in data:
-        raise RuntimeError("Crossref 无响应或返回异常")
+    # 用游标深翻，把窗口内的**全部**条目取回来，不再截断。
+    # 早先只取最新 200 篇，于是 Nature 90 天有 1065 条却只入库 173 条、
+    # 学科页上看到的完全不是真实存量。Crossref 的 cursor 是官方推荐的深翻方式，
+    # 比 offset 稳（offset 超过一定深度会被拒），每页返回 next-cursor 供下一页用。
+    items: list[dict] = []
+    cursor, total = "*", None
+    for _ in range(MAX_PAGES):
+        params = urllib.parse.urlencode({
+            "filter": f"from-created-date:{since_str},type:journal-article",
+            "sort": "created", "order": "desc", "rows": ROWS_PER_PAGE,
+            "cursor": cursor,
+            "select": "title,abstract,author,published,created,DOI,container-title",
+        })
+        data = _get_json(f"{CROSSREF.format(issn=j['issn'])}?{params}")
+        if not data or "message" not in data:
+            # 第一页就失败才算这本刊抓取失败；后续页失败就用已拿到的部分，
+            # 免得一次网络抖动把整本刊的结果丢掉。
+            if not items:
+                raise RuntimeError("Crossref 无响应或返回异常")
+            break
+        msg = data["message"]
+        if total is None:
+            total = msg.get("total-results")
+        page = msg.get("items", [])
+        items.extend(page)
+        cursor = msg.get("next-cursor") or ""
+        # 取满了或没有下一页就停
+        if not cursor or not page or (total is not None and len(items) >= total):
+            break
+    if stats is not None:
+        stats["fetched"] = len(items)
+        stats["total"] = total if total is not None else len(items)
+    data = {"message": {"items": items}}
 
     now_iso = datetime.now(timezone.utc).isoformat()
     since_iso = datetime.fromtimestamp(since_ts, timezone.utc).isoformat()
@@ -397,8 +423,16 @@ def fetch(days: int = db.PAPER_WINDOW_DAYS, force: bool = False) -> int:
         junk = st.get("junk", 0)
         total_junk += junk
         allp.extend(papers)
-        print(f"    [OK ] {j['id']:<14} {j['name_en']:<34} 取到 {len(papers):>4} 篇"
-              + (f"，滤除 {junk:>3} 条非研究条目" if junk else ""))
+        # 把 Crossref 侧的总数一并打出来：翻页取回数应当等于它，
+        # 不等就说明翻页提前断了（比如撞上 MAX_PAGES），一眼能看出来。
+        crossref_total = st.get("total")
+        got = st.get("fetched")
+        span = (f"  [Crossref {crossref_total} 条"
+                + ("，已全部取回]" if got is not None and crossref_total is not None
+                   and got >= crossref_total else f"，取回 {got}]")
+                ) if crossref_total is not None else ""
+        print(f"    [OK ] {j['id']:<14} {j['name_en']:<34} 入库 {len(papers):>4} 篇"
+              + (f"，滤除 {junk:>3} 条" if junk else "") + span)
 
     if allp:
         n_ab = backfill_abstracts(allp)
