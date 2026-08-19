@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 CREATE INDEX IF NOT EXISTS idx_articles_pub ON articles(published_at);
 CREATE INDEX IF NOT EXISTS idx_articles_region ON articles(region);
+-- 入库时的重复抓取守卫要按 (source, title) 查一次，见 db.upsert_articles。
+-- 这条索引不是优化而是必需：实测无索引时每次抓取要多花约 10 秒做全表扫描。
+CREATE INDEX IF NOT EXISTS idx_articles_source_title ON articles(source, title);
 
 -- 被标题黑名单拦下的条目。留档只为一件事：**事后复查有没有误杀**。
 -- 记下命中的具体规则，发现真新闻被拦时可以直接定位到是哪条规则过宽。

@@ -148,7 +148,12 @@ JUNK_TITLE_PATTERNS = [
     r"^Reuters\s*[-–—]\s*Reuters$",
     # 共同社英文站会推自动生成的地震速报占位条，以及只剩「- 媒体名」的空标题条
     r"^Earthquake alert \(automated\)",
-    r"^\s*[-–—]\s*Japan Wire by Kyodo News\s*$",
+    # 只剩「- 媒体名」的空标题条：Google News 抽不出标题时会留下这种壳。
+    # 不写死媒体名——各源都可能出现（实测见过「- Japan Wire by Kyodo News」与「- 财新」）。
+    r"^\s*[-–—|]\s*[^-–—|]{1,30}\s*$",
+    # Politico 的站内索引页。不能靠词数规则：它是 3 词，而同样 3 词的
+    # 「Paging Micah Lasher」是真报道，只能按字面拦这一条。
+    r"^Latest on POLITICO\b",
     # NHK WORLD 把日语教学栏目也放进新闻流
     r"\bEasy Japanese \(Grammar Lessons\)",
 ]
@@ -180,6 +185,15 @@ _TAG_SUFFIXES = [
     # （Library devastated by flood），所以阈值必须压到 1 词。
     (re.compile(r"\s[-–—|]\s*(CNN|cnn\.com)\s*$", re.I), 1,
      "<CNN 单词标签页：去掉「- CNN」后仅 1 词>"),
+    # 共同社的板块页（World）。实测该源 56 个标题里去掉后缀后 ≤3 词的只有这一条，
+    # 真新闻全是长句，阈值取 1 词已足够且没有误伤空间。
+    (re.compile(r"\s[-–—|]\s*Japan Wire by Kyodo News\s*$", re.I), 1,
+     "<共同社单词板块页：去掉「- Japan Wire by Kyodo News」后仅 1 词>"),
+    # 财新是中文源，去掉后缀后仍是纯 ASCII 的只有 4 条：两条真英文报道
+    # （In Depth: … / Cover Story: … 都很长且带冒号）、一条空标题、一条作者页
+    # 「Koneko mari」。阈值 2 词恰好把作者页与真报道分开。
+    (re.compile(r"\s[-–—|]\s*财新\s*$"), 2,
+     "<财新 ASCII 短标题（作者/标签页）：去掉「- 财新」后 ≤2 词且无标点>"),
 ]
 
 

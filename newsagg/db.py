@@ -80,12 +80,60 @@ def today_key() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+DUP_WINDOW_HOURS = 18
+"""同源同标题、且发布时间相差在此以内 -> 判为**同一篇被重复抓取**，不入库。
+
+为什么需要：Google News 把 `when:1d`/`when:2d`/… 的查询扩展当成不同请求，同一篇文章
+在不同查询下会拿到**不同的跳转 URL**，于是 `sha1(url)` 算出不同 id，同一篇被当成
+两三篇入库，各自翻译、各自分类、页面上重复显示。实测全库 5953 篇里有 231 篇这种冗余。
+
+fetch 那边的 `seen` 集合拦不住：它按 link 去重，而 link 每次都不同；且实测 67 组重复里
+有 52 组是**跨次抓取**产生的，只有在入库这一层拦才兜得住。
+
+18 小时这个值是照实测数据选的，不是拍脑袋——把全库同源同标题的相邻发布时间差排出来：
+
+    ≤ 4.84h        231 对   全是重复抓取
+    6.26 – 17.62h   13 对   仍是重复抓取（Natalie Harp 14.16h、West Bank 那篇 17.62h）
+    ≥ 23.33h        17 对   **真·不同篇**：今日重点关注 / 昨夜今晨重大事件汇总 / 美股收跌
+                            这类每日专栏，标题天天一样但确实是不同的两期
+
+真专栏最小间隔 23.76h，重复抓取最大 17.62h，中间有 6 小时空档，18h 落在空档里，
+距最近的真专栏还有 5.7h 余量（约等于一天周期的 75%，够专栏发稿时间漂移）。
+调大到 24h 就会把每日专栏的相邻两期误杀掉——这是这个常量的硬上限。
+"""
+
+# 留档时写死这一个字符串，**不要**把具体 id 或时间差拼进去。
+# dropped_by_pattern() 是按「该规则拦了多少条」升序排的，只命中一两条的规则排在最前面
+# 以便复查误杀；若每条 pattern 都不同，几百条去重记录就会各自变成「只拦了 1 条的规则」
+# 涌到复查列表最前面，把真正需要人看的垃圾标题规则挤到后面去。
+_DUP_PATTERN = f"<重复抓取：同源同标题且发布时间相差 <{DUP_WINDOW_HOURS}h>"
+
+
 def upsert_articles(articles: list[Article]) -> int:
-    """按 id(url 哈希) 去重插入，返回新增条数。"""
+    """按 id(url 哈希) 去重插入，返回新增条数。
+
+    除了 id 去重，还会拦掉「同源同标题且发布时间相近」的重复抓取，见 DUP_WINDOW_HOURS。
+    被拦的一律留档到 dropped_titles，供事后复查误杀。
+    """
     init()
     inserted = 0
+    dup_hit: list[dict] = []
     with connect() as conn:
         for a in articles:
+            # id<>? 是必须的：同一篇被原样重抓（同 url 同 id）不算「重复抓取」，
+            # 交给下面的 INSERT OR IGNORE 静默跳过即可，否则会往留档里灌无意义的行。
+            # 同一次调用里的多条共用这个 connection，SQLite 看得见自己刚插入、尚未提交
+            # 的行，所以同一批内的重复也会被后一条的这次查询命中。
+            if conn.execute(
+                """SELECT 1 FROM articles
+                   WHERE source=? AND title=? AND id<>?
+                     AND ABS(julianday(published_at) - julianday(?)) * 24 <= ?
+                   LIMIT 1""",
+                (a.source, a.title, a.id, a.published_at, DUP_WINDOW_HOURS),
+            ).fetchone():
+                dup_hit.append({"id": a.id, "source": a.source, "source_name": a.source_name,
+                                "title": a.title, "url": a.url, "pattern": _DUP_PATTERN})
+                continue
             cur = conn.execute(
                 """INSERT OR IGNORE INTO articles
                    (id, source, source_name, region, title, url, lang, published_at, excerpt, fetched_at)
@@ -94,6 +142,7 @@ def upsert_articles(articles: list[Article]) -> int:
                  a.lang, a.published_at, a.excerpt, a.fetched_at),
             )
             inserted += cur.rowcount
+    record_dropped(dup_hit)
     return inserted
 
 
