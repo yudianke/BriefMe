@@ -41,6 +41,18 @@ sources:
     query: "site:reuters.com when:1d"
     gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
 
+  # 走 gnews 而不是 RSS：彭博官方 RSS 只有 markets / politics / technology
+  # 三个分频道各约 20 条（合计 ~60），条线被割裂且偏财经科技；
+  # gnews 的 site: 查询实测一次返回 100 条、覆盖全部条线，也与 AP/路透 配法一致。
+  - id: bloomberg
+    name: 彭博社
+    name_en: Bloomberg
+    region: world
+    lang: en
+    method: gnews
+    query: "site:bloomberg.com when:1d"
+    gnews_locale: {hl: en-US, gl: US, ceid: "US:en"}
+
   - id: xinhua
     name: 新华社
     name_en: Xinhua

@@ -36,6 +36,12 @@ class Provider:
     extra: dict = field(default_factory=dict)   # 模型名 -> extra_body
     sdk: str = "openai"     # "openai"=OpenAI 兼容接口 | "anthropic"=Anthropic 原生接口
     cn: bool = False        # True=中国大陆可直连，无需代理
+    # 「当日额度耗尽」的识别模式，**按 provider 分别配**。
+    # 各家 429 的措辞完全不同，用一条正则通吃必然出错：要么漏判（该 break 时
+    # 不 break，几十批各重试三次白等），要么误判（把每分钟限流当成日额度耗尽，
+    # 直接放弃剩下的批次）。两种都实测踩过，见 _DAILY_RE 的注释。
+    # None 表示沿用默认的 Groq 模式（_DAILY_RE）。
+    daily_re: object = None
 
 
 # 业务角色（各 provider 可为不同角色配不同模型；缺失则回退 "default"）
@@ -111,7 +117,15 @@ PROVIDERS: dict[str, Provider] = {
         name="gemini",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         api_key_env="GEMINI_API_KEY",
-        models={"default": "gemini-2.0-flash"},
+        # 上下文 1,048,576 in / 65,536 out，远超本项目所需；flash-lite 档最省。
+        models={"default": "gemini-3.5-flash-lite"},
+        # Gemini 的配额报错措辞与 Groq 完全不同：429 RESOURCE_EXHAUSTED，
+        # 配额种类写在 quota_id 里（…PerDayPerProjectPerModel… / …PerMinute…）。
+        # 用默认那条 Groq 模式会漏判，于是各批处理循环不再 break，而是每批重试三次白等。
+        # 只认 PerDay/per day，**不认** RESOURCE_EXHAUSTED——后者在每分钟限流里
+        # 同样出现，认了会把瞬时限流当成当日耗尽而放弃整轮（_MINUTE_RE 虽已兜底，
+        # 但模式本身也不该依赖兜底）。漏判的代价只是多重试几次，方向是安全的。
+        daily_re=re.compile(r"PerDay|per day", re.I),
     ),
     "grok": Provider(     # xAI
         name="grok",
@@ -362,8 +376,35 @@ _DAILY_RE = re.compile(r"on (?:tokens|requests) per day|\((?:TPD|RPD)\)", re.I)
 _USAGE_RE = re.compile(r"Limit (\d+), Used (\d+)", re.I)
 
 
-def _is_daily_limit(e) -> bool:
-    return bool(_DAILY_RE.search(str(e)))
+# 「每分钟限流」的标记。这是**负向守卫**，优先级高于下面任何一家的日额度模式。
+# 为什么需要它：两家的每分钟报错里都可能同时出现 "per day" 字样——
+# Groq 尾部带升级推广语（…14,400 requests per day on the Dev Tier），
+# Gemini 的 RESOURCE_EXHAUSTED 正文会列出多条配额。只按「有没有 per day」判，
+# 就会把每分钟限流误判成当日耗尽，于是调用方放弃剩下所有批次。
+# 反过来先认「每分钟」则不会错：带 per minute / (TPM) / PerMinute 的一定不是日额度。
+_MINUTE_RE = re.compile(r"per minute|\((?:TPM|RPM)\)|PerMinute", re.I)
+
+
+def _daily_re_for(provider: str | None) -> "re.Pattern":
+    """某个 provider 的日额度识别模式；没单独配就用默认的 Groq 模式。"""
+    p = PROVIDERS.get(provider or "")
+    if p is None:
+        return _DAILY_RE
+    return p.daily_re or _DAILY_RE
+
+
+def _is_daily_limit(e, provider: str | None = None) -> bool:
+    """按 provider 的模式判断。provider=None 表示拿不到上下文，见 is_daily_limit。"""
+    text = str(e)
+    if _MINUTE_RE.search(text):
+        return False                      # 每分钟限流：等几秒就好，绝不是日额度
+    if provider is not None:
+        return bool(_daily_re_for(provider).search(text))
+    # 无上下文时：**任一已启用的 provider** 命中即算。
+    # 只对已启用的取并集，而不是对全部 10 家取并集——后者会把没在用的家的
+    # 模式也引进来，平白扩大误判面。
+    return any(_daily_re_for(n).search(text)
+               for n in (available_providers() or [None]))
 
 
 def is_daily_limit(e) -> bool:
@@ -372,6 +413,9 @@ def is_daily_limit(e) -> bool:
     给分批循环的调用方用：日额度耗尽时后面每一批都会以同样的理由失败，
     继续循环只是在刷屏和浪费时间（实测一次跑会连撞十几次）。
     与每分钟限流不同——那个等几秒就好，值得重试。
+
+    调用方（translate/classify/summarize/paperai 的批循环）拿不到是哪个
+    provider 抛的异常，所以这里对**已启用的** provider 取并集判断。
     """
     return _is_rate_limit(e) and _is_daily_limit(e)
 
@@ -444,7 +488,7 @@ def complete(role: str, system: str, user: str, max_tokens: int = 1024,
             except Exception as e:
                 # 当日额度耗尽：等下去也不会恢复，直接换 provider 或放弃，
                 # 让已完成的部分照常渲染，而不是把用户晾在那儿等半小时。
-                if _is_rate_limit(e) and _is_daily_limit(e):
+                if _is_rate_limit(e) and _is_daily_limit(e, name):
                     w = _retry_after(e, default=0.0)
                     hint = f"，约 {w / 60:.0f} 分钟后恢复" if w else ""
                     print(f"  [当日额度用尽] {name} 今日 token 配额已耗尽"
@@ -515,7 +559,7 @@ def quota_report() -> None:
                   f"/{h.get('x-ratelimit-limit-requests')}"
                   f"（{h.get('x-ratelimit-reset-requests')} 后重置）")
         except Exception as e:
-            if _is_daily_limit(e):
+            if _is_daily_limit(e, name):
                 w = _retry_after(e, default=0.0)
                 print(f"  [{name}] 当日额度已耗尽{_daily_usage(e)}"
                       f"{f'，约 {w / 60:.0f} 分钟后恢复' if w else ''}")
