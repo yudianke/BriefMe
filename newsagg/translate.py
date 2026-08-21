@@ -39,14 +39,28 @@ def translate(hours: int = 24) -> int:
                 break
             print(f"  [翻译批 {i//BATCH + 1} 失败] {type(e).__name__}: {e}")
             continue
-        data = parse_json(text) or {}
-        for item in data.get("items", []):
-            full = id_map.get(str(item.get("id", "")))
+        data = parse_json(text)
+        items = (data or {}).get("items", [])
+        ok = 0
+        for item in items:
+            # 模型偶尔把输入行「短ID<tab>标题」整行回显进 id 字段，
+            # 取第一个制表符之前的部分即可还原出短ID，不必丢掉这一条。
+            short = str(item.get("id", "")).split("	", 1)[0].strip()
+            full = id_map.get(short)
             zh = (item.get("zh") or "").strip()
             if full and zh:
                 db.set_title_zh(full, zh)
-                done += 1
-        print(f"  翻译批 {i//BATCH + 1}: {len(batch)} 条")
+                ok += 1
+        done += ok
+        # 打印**成功入库的条数**，不是送入条数。之前打的是 len(batch)：
+        # 整批解析失败时日志照样显示「25 条」，177/377 的丢失完全看不出来。
+        if ok == len(batch):
+            print(f"  翻译批 {i//BATCH + 1}: {ok} 条")
+        else:
+            why = (f"JSON 解析失败（模型输出 {len(text)} 字符）" if not data
+                   else f"模型只返回 {len(items)} 条")
+            print(f"  翻译批 {i//BATCH + 1}: {ok}/{len(batch)} 条 "
+                  f"—— {len(batch) - ok} 条未落库：{why}")
     print(f"翻译完成，共 {done} 条中文译题。")
     return done
 

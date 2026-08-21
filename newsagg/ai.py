@@ -509,6 +509,26 @@ def complete(role: str, system: str, user: str, max_tokens: int = 1024,
     raise last
 
 
+def _loads(s: str):
+    """先按严格模式解析，失败再放宽「字符串内的裸控制字符」这一条。
+
+    为什么必须放宽：模型偶尔会把输入行原样回显进字段值。翻译的输入是
+    「短ID<tab>标题」，回显时那个**字面制表符**就被带进了 JSON 字符串里。
+    JSON 规范不允许字符串内出现裸控制字符（U+0000–U+001F），严格模式会对
+    整段抛 Invalid control character —— **一条畸形数据让整批全部作废**。
+
+    实测代价很实：一次翻译 8 批里有 4 批因此颗粒无收，200 条一条都没入库，
+    而日志显示的是送入条数，看上去完全正常。
+
+    strict=False 只影响这一条规则，括号配对、逗号、转义等语法照常校验，
+    坏 JSON 仍然会抛错，不会把垃圾当成功。
+    """
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return json.loads(s, strict=False)
+
+
 def parse_json(text: str):
     """从可能带 ```json 围栏或多余文字的回复里抽出 JSON 对象/数组。"""
     if not text:
@@ -516,14 +536,14 @@ def parse_json(text: str):
     t = text.strip()
     t = re.sub(r"^```(?:json)?\s*|\s*```$", "", t, flags=re.IGNORECASE).strip()
     try:
-        return json.loads(t)
+        return _loads(t)
     except json.JSONDecodeError:
         pass
     for open_c, close_c in (("{", "}"), ("[", "]")):
         i, j = t.find(open_c), t.rfind(close_c)
         if 0 <= i < j:
             try:
-                return json.loads(t[i:j + 1])
+                return _loads(t[i:j + 1])
             except json.JSONDecodeError:
                 continue
     return None
